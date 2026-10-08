@@ -11,6 +11,7 @@ import random
 import uuid
 import re
 
+
 from django.apps import apps
 from django.apps.config import MODELS_MODULE_NAME
 from django.conf import settings
@@ -177,6 +178,8 @@ class User(AbstractBaseUser, PermissionsMixin):
                                                           verbose_name=_("max number of memberships of "
                                                                          "different users for all owned "
                                                                          "public project"))
+    
+
 
     _cached_memberships = None
     _cached_liked_ids = None
@@ -294,6 +297,7 @@ class User(AbstractBaseUser, PermissionsMixin):
 
         # Remove all memberships
         self.memberships.all().delete()
+
 
 
 class Role(models.Model):

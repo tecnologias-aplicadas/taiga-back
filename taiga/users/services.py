@@ -8,23 +8,22 @@
 """
 This model contains a domain logic for users application.
 """
-from io import StringIO
 import csv
 import os
 import uuid
 import zipfile
+from io import StringIO
 
 from django.apps import apps
-from django.contrib.auth import get_user_model
-from django.core.files.storage import default_storage
-from django.db.models import OuterRef, Q, Subquery
-from django.db import connection
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
+from django.core.files.storage import default_storage
+from django.db import connection
+from django.db.models import OuterRef, Q, Subquery
 from django.utils.translation import gettext as _
-
-from easy_thumbnails.files import get_thumbnailer
 from easy_thumbnails.exceptions import InvalidImageFormatError
+from easy_thumbnails.files import get_thumbnailer
 
 from taiga.base import exceptions as exc
 from taiga.base.utils.db import to_tsquery
@@ -49,6 +48,25 @@ def get_user_by_username_or_email(username_or_email):
     return user
 
 
+def get_user_ldap_by_username_or_email_and_validate(username_or_email):
+    user_model = get_user_model()
+    qs = user_model.objects.filter(Q(username__iexact=username_or_email) |
+                                   Q(email__iexact=username_or_email))
+
+    if len(qs) == 0: #se vier vazia
+        return None
+    
+    if len(qs) > 1: #se vier com + de 1 valor
+        qs = qs.filter(Q(username=username_or_email) |
+                       Q(email=username_or_email))
+
+    
+    if (qs[0].is_active is False) or qs[0].is_system: #validar apenas a primeira tupla
+        raise exc.WrongArguments(_("Acesso não permitido."))
+    
+    return qs[0] #retornar a primeira tupla
+
+#00LOGIN 
 def get_and_validate_user(*, username: str, password: str) -> bool:
     """
     Check if user with username/email exists and specified
@@ -272,6 +290,30 @@ def _build_liked_sql_for_projects(for_user):
     return sql
 
 
+# Dados básicos do usuário que o UserBasicInfoSerializer precisa (o e-mail só
+# para o gravatar). Só estas colunas saem do banco: nada de senha nem tokens.
+ASSIGNED_TO_EXTRA_INFO_SQL = """
+    CASE WHEN users_user.id IS NULL THEN NULL
+         ELSE json_build_object('id', users_user.id, 'username', users_user.username,
+                                'full_name', users_user.full_name, 'email', users_user.email,
+                                'photo', users_user.photo, 'is_active', users_user.is_active)
+    END"""
+
+# Atribuídos da história (lista múltipla), ordenados por id. Fica fora do UNION
+# porque json não tem igualdade e o UNION deduplica. Nulo para os demais tipos.
+ASSIGNED_USERS_EXTRA_INFO_SQL = """
+    CASE WHEN entities.type = 'userstory' THEN (
+        SELECT json_agg(json_build_object('id', u.id, 'username', u.username,
+                                          'full_name', u.full_name, 'email', u.email,
+                                          'photo', u.photo, 'is_active', u.is_active)
+                        ORDER BY u.id)
+          FROM userstories_userstory_assigned_users au
+          JOIN users_user u ON u.id = au.user_id
+         WHERE au.userstory_id = entities.id)
+         ELSE NULL
+    END"""
+
+
 def _build_sql_for_type(for_user, type, table_name, action_table, ref_column="ref",
                         project_column="project_id", assigned_to_column="assigned_to_id",
                         slug_column="slug", subject_column="subject"):
@@ -321,7 +363,8 @@ def get_watched_list(for_user, from_user, type=None, q=None):
            projects_project.name as project_name, projects_project.description as description, projects_project.slug as project_slug, projects_project.is_private as project_is_private,
            projects_project.blocked_code as project_blocked_code, projects_project.tags_colors, projects_project.logo,
            users_user.id as assigned_to_id,
-           row_to_json(users_user) as assigned_to_extra_info
+           {assigned_to_extra_info_sql} as assigned_to_extra_info,
+           {assigned_users_extra_info_sql} as assigned_users_extra_info
 
         FROM (
             {epics_sql}
@@ -383,6 +426,8 @@ def get_watched_list(for_user, from_user, type=None, q=None):
         for_user_id=for_user.id,
         from_user_id=from_user_id,
         filters_sql=filters_sql,
+        assigned_to_extra_info_sql=ASSIGNED_TO_EXTRA_INFO_SQL,
+        assigned_users_extra_info_sql=ASSIGNED_USERS_EXTRA_INFO_SQL,
         userstories_sql=_build_sql_for_type(for_user, "userstory", "userstories_userstory", "notifications_watched", slug_column="null"),
         tasks_sql=_build_sql_for_type(for_user, "task", "tasks_task", "notifications_watched", slug_column="null"),
         issues_sql=_build_sql_for_type(for_user, "issue", "issues_issue", "notifications_watched", slug_column="null"),
@@ -504,7 +549,8 @@ def get_voted_list(for_user, from_user, type=None, q=None):
            projects_project.name as project_name, projects_project.description as description, projects_project.slug as project_slug, projects_project.is_private as project_is_private,
            projects_project.blocked_code as project_blocked_code, projects_project.tags_colors, projects_project.logo,
            users_user.id as assigned_to_id,
-           row_to_json(users_user) as assigned_to_extra_info
+           {assigned_to_extra_info_sql} as assigned_to_extra_info,
+           {assigned_users_extra_info_sql} as assigned_users_extra_info
         FROM (
             {epics_sql}
             UNION
@@ -562,6 +608,8 @@ def get_voted_list(for_user, from_user, type=None, q=None):
         for_user_id=for_user.id,
         from_user_id=from_user_id,
         filters_sql=filters_sql,
+        assigned_to_extra_info_sql=ASSIGNED_TO_EXTRA_INFO_SQL,
+        assigned_users_extra_info_sql=ASSIGNED_USERS_EXTRA_INFO_SQL,
         userstories_sql=_build_sql_for_type(for_user, "userstory", "userstories_userstory", "votes_vote", slug_column="null"),
         tasks_sql=_build_sql_for_type(for_user, "task", "tasks_task", "votes_vote", slug_column="null"),
         issues_sql=_build_sql_for_type(for_user, "issue", "issues_issue", "votes_vote", slug_column="null"),
@@ -618,3 +666,17 @@ def export_profile(user):
                  "{}-photo{}".format(filename, file_extension))
 
     return default_storage.url(zip_path)
+
+def validate_restrict_email(user_email: str) -> bool:
+    """ Valida se o usuário está na lista de contas corporativa, True -> Caso SIM, False -> Caso NÂO """
+    
+    restrict_domains = [
+        "@itaipuparquetec.org.br",
+        "@pti.org.br",
+        "@voluntario.pti.org.br",
+        "@bolsista.pti.org.br"
+    ]
+        
+    domain = "@" + user_email.split("@")[1]    
+
+    return domain in restrict_domains

@@ -5,6 +5,7 @@
 #
 # Copyright (c) 2021-present Kaleidos INC
 
+from django.db.models import Q
 from django.http import HttpResponse
 from django.utils.translation import gettext as _
 
@@ -28,6 +29,8 @@ from taiga.projects.tagging.api import TaggedResourceMixin
 from taiga.projects.userstories.models import UserStory
 
 from taiga.projects.votes.mixins.viewsets import VotedResourceMixin, VotersViewSetMixin
+from taiga.projects.card_relations.models import CardRelation
+from taiga.projects.card_relations.choices import CardType
 
 from . import models
 from . import permissions
@@ -110,6 +113,15 @@ class TaskViewSet(AssignedToSignalMixin, OCCResourceMixin, VotedResourceMixin,
         if obj.milestone and obj.user_story and obj.milestone != obj.user_story.milestone:
             raise exc.WrongArguments(_("You don't have permissions to set this sprint to this task."))
 
+    def pre_delete(self, obj):
+        if CardRelation.objects.filter(
+            Q(source_type=CardType.TASK, source_id=obj.id) |
+            Q(target_type=CardType.TASK, target_id=obj.id),
+            is_active=True
+        ).exists():
+            raise exc.BadRequest({"code": "has_active_card_relations"})
+        super().pre_delete(obj)
+
     """
     Updating some attributes of the userstory can affect the ordering in the backlog, kanban or taskboard
     These two methods generate a key for the task and can be used to be compared before and after
@@ -130,6 +142,9 @@ class TaskViewSet(AssignedToSignalMixin, OCCResourceMixin, VotedResourceMixin,
         else:
             self._old_us_order_key = self._us_order_key(self.get_object())
             self._old_taskboard_order_key = self._taskboard_order_key(self.get_object())
+
+            if obj.is_blocked and getattr(obj.status, "is_closed", False):
+                raise exc.WrongArguments({"code": "blocked_item_cannot_be_closed"})
 
         super().pre_save(obj)
 

@@ -509,7 +509,8 @@ class Command(BaseCommand):
                                               modified_date=start_date,
                                               estimated_start=start_date,
                                               estimated_finish=end_date,
-                                              order=10)
+                                              order=10,
+                                              goal=self.sd.paragraph())
         take_snapshot(milestone, user=milestone.owner)
 
         return milestone
@@ -520,6 +521,8 @@ class Command(BaseCommand):
                                  owner=self.sd.db_object_from_queryset(
                                          project.memberships.filter(user__isnull=False)).user,
                                  description=self.sd.paragraph(),
+                                 start_date=datetime.date(2020, 1, 1),
+                                 expected_completion_date=datetime.date(2020, 12, 31),
                                  status=self.sd.db_object_from_queryset(project.epic_statuses.filter(
                                                                         is_closed=False)),
                                  tags=self.sd.words(1, 3).split(" "))
@@ -592,7 +595,9 @@ class Command(BaseCommand):
                                          total_story_points=self.sd.int(600, 3000),
                                          total_milestones=self.sd.int(5,10),
                                          tags=self.sd.words(1, 10).split(" "),
-                                         blocked_code=blocked_code)
+                                         blocked_code=blocked_code,
+                                         start_date=datetime.date(2020, 1, 1),
+                                         expected_end_date=datetime.date(2020, 12, 31))
 
         project.is_looking_for_people = counter in LOOKING_FOR_PEOPLE_PROJECTS_POSITIONS
         if project.is_looking_for_people:

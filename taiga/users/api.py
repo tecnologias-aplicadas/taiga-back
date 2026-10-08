@@ -14,12 +14,14 @@ from django.core.exceptions import ValidationError
 from django.conf import settings
 
 from taiga.auth.exceptions import TokenError
+from taiga.auth.functions import user_is_itaipuparquetec
 from taiga.auth.tokens import CancelToken
 from taiga.auth.settings import api_settings as auth_settings
 from taiga.base import exceptions as exc
 from taiga.base import filters
 from taiga.base import response
 from taiga.base.utils.dicts import into_namedtuple
+from taiga.base.utils.images import validate_image_file
 from taiga.base.decorators import list_route
 from taiga.base.decorators import detail_route
 from taiga.base.api.fields import validate_user_email_allowed_domains
@@ -28,8 +30,7 @@ from taiga.base.api.viewsets import ModelCrudViewSet
 from taiga.base.api.utils import get_object_or_404
 from taiga.base.filters import MembersFilterBackend
 from taiga.base.mails import mail_builder
-from taiga.users.services import get_user_by_username_or_email
-from easy_thumbnails.source_generators import pil_image
+from taiga.users.services import get_user_by_username_or_email, validate_restrict_email
 
 from . import models
 from . import serializers
@@ -96,46 +97,12 @@ class UsersViewSet(ModelCrudViewSet):
         serializer = self.get_serializer(self.object)
         return response.Ok(serializer.data)
 
-    # TODO: commit_on_success
     def partial_update(self, request, *args, **kwargs):
-        """
-        We must detect if the user is trying to change his email so we can
-        save that value and generate a token that allows him to validate it in
-        the new email account
-        """
         user = self.get_object()
         self.check_permissions(request, "update", user)
 
-        new_email = request.DATA.pop('email', None)
-        if new_email is not None:
-            valid_new_email = True
-            duplicated_email = models.User.objects.filter(email=new_email).exists()
-
-            try:
-                validate_email(new_email)
-                validate_user_email_allowed_domains(new_email)
-            except ValidationError:
-                valid_new_email = False
-
-            valid_new_email = valid_new_email and new_email != request.user.email
-
-            if duplicated_email:
-                raise exc.WrongArguments(_("Duplicated email"))
-            elif not valid_new_email:
-                raise exc.WrongArguments(_("Invalid email"))
-
-            # We need to generate a token for the email
-            request.user.email_token = str(uuid.uuid4())
-            request.user.new_email = new_email
-            request.user.save(update_fields=["email_token", "new_email"])
-            email = mail_builder.change_email(
-                request.user.new_email,
-                {
-                    "user": request.user,
-                    "lang": request.user.lang
-                }
-            )
-            email.send()
+        if 'username' in request.DATA or 'email' in request.DATA:
+            return response.Forbidden({"code": "fields_not_editable"})
 
         return super().partial_update(request, *args, **kwargs)
 
@@ -161,8 +128,12 @@ class UsersViewSet(ModelCrudViewSet):
 
         if not username_or_email:
             raise exc.WrongArguments(_("Invalid username or email"))
-
+        
         user = get_user_by_username_or_email(username_or_email)
+
+        if user_is_itaipuparquetec(user.email):
+            return response.BadRequest({"code": "corporate_user"})
+
         user.token = str(uuid.uuid4())
         user.save(update_fields=["token"])
 
@@ -187,6 +158,9 @@ class UsersViewSet(ModelCrudViewSet):
             user = models.User.objects.get(token=validator.data["token"])
         except models.User.DoesNotExist:
             raise exc.WrongArguments(_("Token is invalid"))
+        
+        if validate_restrict_email(user.email):
+            raise exc.PermissionDenied("User can not change his password")
 
         user.set_password(validator.data["password"])
         user.token = None
@@ -200,6 +174,9 @@ class UsersViewSet(ModelCrudViewSet):
         Change password to current logged user.
         """
         self.check_permissions(request, "change_password", None)
+
+        if user_is_itaipuparquetec(request.user.email):
+            return response.Forbidden({"code": "corporate_cant_change_pass"})
 
         current_password = request.DATA.get("current_password")
         password = request.DATA.get("password")
@@ -218,6 +195,9 @@ class UsersViewSet(ModelCrudViewSet):
         if current_password and not request.user.check_password(current_password):
             raise exc.WrongArguments(_("Invalid current password"))
 
+        if validate_restrict_email(request.user.email):
+            raise exc.PermissionDenied("User can not change his password")
+    
         request.user.set_password(password)
         request.user.save(update_fields=["password"])
         return response.NoContent()
@@ -234,11 +214,7 @@ class UsersViewSet(ModelCrudViewSet):
         if not avatar:
             raise exc.WrongArguments(_("Incomplete arguments"))
 
-        try:
-            pil_image(avatar)
-        except Exception:
-            raise exc.WrongArguments(_("Invalid image format"))
-
+        validate_image_file(avatar)
         request.user.photo = avatar
         request.user.save(update_fields=["photo"])
         user_data = self.admin_serializer_class(request.user).data
@@ -272,6 +248,9 @@ class UsersViewSet(ModelCrudViewSet):
                                        "didn't use it before?"))
 
         self.check_permissions(request, "change_email", user)
+        
+        if validate_restrict_email(user.email):
+            raise exc.PermissionDenied("User can not change his email")
 
         old_email = user.email
         new_email = user.new_email

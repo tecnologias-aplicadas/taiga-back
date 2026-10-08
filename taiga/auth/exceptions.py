@@ -68,3 +68,12 @@ class InvalidToken(AuthenticationFailed):
     status_code = status.HTTP_401_UNAUTHORIZED
     default_detail = _('Token is invalid or expired')
     default_code = 'token_not_valid'
+
+
+class LDAPFallibleConn(exceptions.APIException):
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_detail = _("Falha ao estabelecer conexão LDAP.")
+
+class LDAPTLSNotDefined(exceptions.APIException):
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_detail = _("A variável NESA_LDAP_TLS possui um valor inválido.")

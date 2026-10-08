@@ -60,6 +60,11 @@ MEMBERS_PERMISSIONS = [
     ('add_wiki_link', _('Add wiki link')),
     ('modify_wiki_link', _('Modify wiki link')),
     ('delete_wiki_link', _('Delete wiki link')),
+    #Card Relation permissions
+    ('view_card_relations', _('View card relations')),
+    ('add_card_relation', _('Add card relation')),
+    ('modify_card_relation', _('Modify card relation')),
+    ('delete_card_relation', _('Delete card relation')),
 ]
 
 ADMINS_PERMISSIONS = [

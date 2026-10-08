@@ -1,0 +1,143 @@
+image: python:3.11
+
+stages:
+ - build-test
+ - create-image-develop
+ - create-image-main
+ - create-image-staging
+ - deploy-develop
+ - deploy-staging
+
+variables:
+  PIPENV_VENV_IN_PROJECT: "1"
+  PIPENV_IGNORE_VIRTUALENVS: "1"
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+
+# Teste de build do projeto
+build-test:
+  stage: build-test
+  cache:
+    key: "${CI_COMMIT_REF_SLUG}"
+    paths:
+      - .cache/pip/
+  script:
+    - python -m venv .venv
+    - source .venv/bin/activate
+    - python -m pip install --upgrade pip wheel
+    - pip install -r requirements.txt
+    - tar -czf cache-pip.tar.gz .cache/pip/wheels
+  artifacts:
+    paths:
+      - cache-pip.tar.gz
+    expire_in: 30 mins
+
+# Envia Imagem docker ao Harbor com Tag latest - Branch develop
+create-image-develop:
+  stage: create-image-develop
+  image: docker:latest
+  dependencies:
+   - build-test
+  services:
+   - docker:dind
+  script:
+   - tar -xzf cache-pip.tar.gz
+   - rm cache-pip.tar.gz
+   - docker build -f docker/Dockerfile --build-arg AT_TAIGA_CONTRIB_PROTECTED=$AT_TAIGA_CONTRIB_PROTECTED -t $DOCKER_IMAGE_NAME_DEVELOP:$CI_COMMIT_SHA -t $DOCKER_IMAGE_NAME_DEVELOP:latest .
+   - docker login -u $REGISTRY_USER -p $REGISTRY_PASS $REGISTRY_HOST
+   - docker push $DOCKER_IMAGE_NAME_DEVELOP:$CI_COMMIT_SHA
+   - docker push $DOCKER_IMAGE_NAME_DEVELOP:latest
+  only:
+   - develop
+
+# Envia Imagem docker ao Harbor com Tag latest - Branch staging
+create-image-staging:
+  stage: create-image-staging
+  image: docker:latest
+  dependencies:
+   - build-test
+  services:
+   - docker:dind
+  script:
+   - tar -xzf cache-pip.tar.gz
+   - rm cache-pip.tar.gz
+   - docker build -f docker/Dockerfile --build-arg AT_TAIGA_CONTRIB_PROTECTED=$AT_TAIGA_CONTRIB_PROTECTED -t $DOCKER_IMAGE_NAME_STAGING:$CI_COMMIT_SHA -t $DOCKER_IMAGE_NAME_STAGING:latest .
+   - docker login -u $REGISTRY_USER -p $REGISTRY_PASS $REGISTRY_HOST
+   - docker push $DOCKER_IMAGE_NAME_STAGING:$CI_COMMIT_SHA
+   - docker push $DOCKER_IMAGE_NAME_STAGING:latest
+  only:
+   - staging
+
+# Envia Imagem docker ao Harbor com Tag latest - Branch main
+create-image-main:
+  stage: create-image-main
+  image: docker:latest
+  dependencies:
+   - build-test
+  services:
+   - docker:dind
+  script:
+   - tar -xzf cache-pip.tar.gz
+   - rm cache-pip.tar.gz
+   - docker build -f docker/Dockerfile --build-arg AT_TAIGA_CONTRIB_PROTECTED=$AT_TAIGA_CONTRIB_PROTECTED -t $DOCKER_IMAGE_NAME_PROD:$CI_COMMIT_SHA -t $DOCKER_IMAGE_NAME_PROD:latest .
+   - docker login -u $REGISTRY_USER -p $REGISTRY_PASS $REGISTRY_HOST
+   - docker push $DOCKER_IMAGE_NAME_PROD:$CI_COMMIT_SHA
+   - docker push $DOCKER_IMAGE_NAME_PROD:latest
+  only:
+   - main
+
+# Acessa a VM que está executando o container e faz o deploy da aplicação (TAG latest)
+deploy-develop:
+  stage: deploy-develop
+  image: docker:latest
+  dependencies:
+   - create-image-develop
+  variables:
+    DOCKER_HOST: tcp://docker:2375/
+  script:
+   - eval $(ssh-agent -s)
+   - echo "$SSH_PRIVATE_KEY_DEVELOP" | tr -d '\r' | ssh-add -
+   - mkdir -p ~/.ssh
+   - chmod 700 ~/.ssh
+   - ssh-keyscan -p $SSH_PORT_DEVELOP $SSH_HOST_DEVELOP >> ~/.ssh/known_hosts
+   - chmod 644 ~/.ssh/known_hosts
+   - ssh $SSH_USER_DEVELOP@$SSH_HOST_DEVELOP "python3 $SCRIPT_PATH -d $REGISTRY_HOST -u $REGISTRY_USER -p $REGISTRY_PASS -c "$CONTAINER_NAME" -f $COMPOSE_PATH_DEVELOP -w $WAIT_TIME"
+  only:
+   - develop
+
+# Acessa a VM que está executando o container e faz o deploy da aplicação (TAG staging)
+deploy-staging:
+  stage: deploy-staging
+  image: docker:latest
+  dependencies:
+   - create-image-staging
+  variables:
+    DOCKER_HOST: tcp://docker:2375/
+  script:
+   - eval $(ssh-agent -s)
+   - echo "$SSH_PRIVATE_KEY_STAGING" | tr -d '\r' | ssh-add -
+   - mkdir -p ~/.ssh
+   - chmod 700 ~/.ssh
+   - ssh-keyscan -p $SSH_PORT_STAGING $SSH_HOST_STAGING >> ~/.ssh/known_hosts
+   - chmod 644 ~/.ssh/known_hosts
+   - ssh $SSH_USER_STAGING@$SSH_HOST_STAGING "python3 $SCRIPT_PATH -d $REGISTRY_HOST -u $REGISTRY_USER -p $REGISTRY_PASS -c "$CONTAINER_NAME" -f $COMPOSE_PATH_STAGING -w $WAIT_TIME"
+  only:
+   - staging
+
+### TESTS DEVOPS ONLY ###
+# Envia Imagem docker ao Harbor (TAG test)
+#create-image-test:
+#  stage: create-image-test
+#  image: docker:latest
+#  dependencies:
+#   - build-test
+#  services:
+#   - docker:dind
+#  script:
+#   - tar -xzf cache-pip.tar.gz
+#   - rm cache-pip.tar.gz
+#   - docker build -f docker/Dockerfile --build-arg AT_TAIGA_CONTRIB_PROTECTED=$AT_TAIGA_CONTRIB_PROTECTED -t $DOCKER_IMAGE_NAME_TEST:$CI_COMMIT_SHA -t $DOCKER_IMAGE_NAME_TEST:cache-final .
+#   - docker login -u $REGISTRY_USER -p $REGISTRY_PASS $REGISTRY_HOST
+#   - docker push $DOCKER_IMAGE_NAME_TEST:$CI_COMMIT_SHA
+#   - docker push $DOCKER_IMAGE_NAME_TEST:cache-final
+#  only:
+#   - devops-testes-pipeline

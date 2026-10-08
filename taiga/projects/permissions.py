@@ -41,7 +41,7 @@ class CanLeaveProject(PermissionComponent):
 class ProjectPermission(TaigaResourcePermission):
     retrieve_perms = HasProjectPerm('view_project')
     by_slug_perms = HasProjectPerm('view_project')
-    create_perms = IsAuthenticated()
+    create_perms = IsSuperUser() # Alterado aqui, pois somente supervisão pode criar projetos IsAuthenticated()
     update_perms = IsProjectAdmin()
     partial_update_perms = IsProjectAdmin()
     destroy_perms = IsProjectAdmin()

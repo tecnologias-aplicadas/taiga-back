@@ -71,6 +71,7 @@ class TaskStatusExportSerializer(RelatedExportSerializer):
     order = Field()
     is_closed = Field()
     color = Field()
+    completion_percent = Field()
 
 
 class TaskDueDateExportSerializer(RelatedExportSerializer):
@@ -213,6 +214,11 @@ class MilestoneExportSerializer(WatcheableObjectLightSerializerMixin, RelatedExp
     closed = Field()
     disponibility = Field()
     order = Field()
+    goal = Field()
+    goal_achievement = Field()
+    result = Field()
+    result_date = DateTimeField()
+    result_by = UserRelatedField()
 
 
 class TaskExportSerializer(CustomAttributesValuesExportSerializerMixin,

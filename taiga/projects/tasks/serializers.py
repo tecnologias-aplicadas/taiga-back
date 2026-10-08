@@ -49,6 +49,8 @@ class TaskListSerializer(VoteResourceSerializerMixin, WatchedResourceSerializer,
     blocked_note = Field()
     is_closed = MethodField()
     user_story_extra_info = Field()
+    completion_percent_progress = Field()
+    completion_percent_done = Field()
 
     def get_generated_user_stories(self, obj):
         assert hasattr(obj, "generated_user_stories_attr"),\

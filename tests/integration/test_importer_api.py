@@ -1872,3 +1872,69 @@ def test_dump_import_duplicated_project(client):
     assert response.status_code == 201
     assert response.data["name"] == "Test import"
     assert response.data["slug"] == "{}-test-import".format(user.username)
+
+
+####################################################################################
+# importacao do completion_percent dos status de tarefa
+####################################################################################
+
+def _import_project_with_task_statuses(client, task_statuses):
+    user = f.UserFactory.create()
+    client.login(user)
+
+    url = reverse("importer-list")
+    data = {
+        "name": "Imported project",
+        "description": "Imported project",
+        "roles": [{
+            "permissions": [],
+            "name": "Test"
+        }],
+        "task_statuses": task_statuses,
+    }
+    return client.json.post(url, json.dumps(data))
+
+
+def test_project_import_copies_task_status_completion_percent(client):
+    response = _import_project_with_task_statuses(client, [
+        {"name": "A Fazer", "completion_percent": 30},
+        {"name": "Em Progresso", "completion_percent": 70},
+        {"name": "Concluída", "completion_percent": 100, "is_closed": True},
+    ])
+    assert response.status_code == 201
+
+    project = Project.objects.get(id=response.data["id"])
+    imported = {s.name: s.completion_percent for s in project.task_statuses.all()}
+    assert imported == {"A Fazer": 30, "Em Progresso": 70, "Concluída": 100}
+
+
+def test_project_import_without_completion_percent_key_creates_status_with_none(client):
+    response = _import_project_with_task_statuses(client, [
+        {"name": "Novo"},
+        {"name": "Fechado", "is_closed": True},
+    ])
+    assert response.status_code == 201
+
+    project = Project.objects.get(id=response.data["id"])
+    imported = {s.name: s.completion_percent for s in project.task_statuses.all()}
+    assert imported["Novo"] is None
+    assert imported["Fechado"] == 100
+
+
+def test_project_import_rejects_task_status_completion_percent_out_of_range(client):
+    response = _import_project_with_task_statuses(client, [
+        {"name": "Alto", "completion_percent": 150},
+    ])
+    assert response.status_code == 400
+    assert "completion_percent" in response.data["task_statuses"][0]
+    assert Project.objects.filter(slug="imported-project").count() == 0
+
+
+def test_project_import_normalizes_100_on_open_task_status(client):
+    response = _import_project_with_task_statuses(client, [
+        {"name": "Quase", "completion_percent": 100},
+    ])
+    assert response.status_code == 201
+
+    project = Project.objects.get(id=response.data["id"])
+    assert project.task_statuses.get(name="Quase").completion_percent == 99

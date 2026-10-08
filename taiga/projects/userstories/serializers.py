@@ -13,6 +13,7 @@ from taiga.mdrender.service import render as mdrender
 from taiga.projects.attachments.serializers import BasicAttachmentsInfoSerializerMixin
 from taiga.projects.due_dates.serializers import DueDateSerializerMixin
 from taiga.projects.mixins.serializers import AssignedToExtraInfoSerializerMixin
+from taiga.projects.mixins.serializers import CachedUsersSerializerMixin
 from taiga.projects.mixins.serializers import OwnerExtraInfoSerializerMixin
 from taiga.projects.mixins.serializers import ProjectExtraInfoSerializerMixin
 from taiga.projects.mixins.serializers import StatusExtraInfoSerializerMixin
@@ -34,9 +35,22 @@ class OriginItemSerializer(serializers.LightSerializer):
         return super().to_value(instance)
 
 
+class AssignedUsersExtraInfoSerializerMixin(CachedUsersSerializerMixin):
+    """Dados básicos dos atribuídos da história, ordenados por id.
+
+    A história lê só a lista múltipla: o campo único assigned_to não entra.
+    """
+    assigned_users_extra_info = MethodField()
+
+    def get_assigned_users_extra_info(self, obj):
+        users = sorted(obj.assigned_users.all(), key=lambda user: user.id)
+        return [self.get_user_extra_info(user) for user in users]
+
+
 class UserStoryListSerializer(ProjectExtraInfoSerializerMixin,
         VoteResourceSerializerMixin, WatchedResourceSerializer,
         OwnerExtraInfoSerializerMixin, AssignedToExtraInfoSerializerMixin,
+        AssignedUsersExtraInfoSerializerMixin,
         StatusExtraInfoSerializerMixin, BasicAttachmentsInfoSerializerMixin,
         TaggedInProjectResourceSerializer, TotalCommentsSerializerMixin,
         DueDateSerializerMixin, serializers.LightSerializer):
@@ -76,6 +90,8 @@ class UserStoryListSerializer(ProjectExtraInfoSerializerMixin,
     tasks = MethodField()
     total_attachments = Field()
     swimlane = Field(attr="swimlane_id")
+    completion_percent_progress = Field()
+    completion_percent_done = Field()
 
     assigned_users = MethodField()
 
@@ -166,6 +182,7 @@ class UserStoryNeighborsSerializer(NeighborsSerializerMixin, UserStorySerializer
 class UserStoryLightSerializer(ProjectExtraInfoSerializerMixin,
                                StatusExtraInfoSerializerMixin,
                                AssignedToExtraInfoSerializerMixin,
+                               AssignedUsersExtraInfoSerializerMixin,
                                DueDateSerializerMixin, serializers.LightSerializer):
     id = Field()
     ref = Field()
@@ -182,6 +199,8 @@ class UserStoryLightSerializer(ProjectExtraInfoSerializerMixin,
     version = Field()
     is_blocked = Field()
     blocked_note = Field()
+    completion_percent_progress = Field()
+    completion_percent_done = Field()
 
 
 class UserStoryOnlyRefSerializer(serializers.LightSerializer):
@@ -211,6 +230,8 @@ class UserStoryNestedSerializer(ProjectExtraInfoSerializerMixin,
     backlog_order = Field()
     sprint_order = Field()
     kanban_order = Field()
+    completion_percent_progress = Field()
+    completion_percent_done = Field()
 
     epics = MethodField()
     points = MethodField()

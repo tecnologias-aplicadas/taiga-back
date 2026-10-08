@@ -66,6 +66,7 @@ class UserSerializer(serializers.LightSerializer):
 class UserAdminSerializer(UserSerializer):
     total_private_projects = MethodField()
     total_public_projects = MethodField()
+    is_corporate = MethodField()
     email = Field()
     uuid = Field()
     date_joined = Field()
@@ -76,12 +77,17 @@ class UserAdminSerializer(UserSerializer):
     max_memberships_private_projects = Field()
     max_memberships_public_projects = Field()
     verified_email = Field()
+    is_superuser = Field()
 
     def get_total_private_projects(self, user):
         return user.owned_projects.filter(is_private=True).count()
 
     def get_total_public_projects(self, user):
         return user.owned_projects.filter(is_private=False).count()
+
+    def get_is_corporate(self, user):
+        from taiga.auth.functions import user_is_itaipuparquetec
+        return user_is_itaipuparquetec(user.email)
 
 
 class UserBasicInfoSerializer(serializers.LightSerializer):
@@ -158,6 +164,7 @@ class HighLightedContentSerializer(serializers.LightSerializer):
 
     assigned_to = Field(attr="assigned_to_id")
     assigned_to_extra_info = MethodField()
+    assigned_users_extra_info = MethodField()
 
     is_watcher = MethodField()
     total_watchers = Field()
@@ -212,6 +219,11 @@ class HighLightedContentSerializer(serializers.LightSerializer):
         if obj.assigned_to_extra_info is not None:
             assigned_to = User(**obj.assigned_to_extra_info)
         return UserBasicInfoSerializer(assigned_to).data
+
+    def get_assigned_users_extra_info(self, obj):
+        # Só a história traz a lista múltipla; nos demais tipos a coluna é nula.
+        assigned_users = getattr(obj, "assigned_users_extra_info", None) or []
+        return [UserBasicInfoSerializer(User(**item)).data for item in assigned_users]
 
     def get_tags_colors(self, obj):
         tags = getattr(obj, "tags", [])

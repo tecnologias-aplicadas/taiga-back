@@ -6,14 +6,40 @@
 # Copyright (c) 2021-present Kaleidos INC
 
 from .common import *
+from . import login_fail_rate_from_env
 import os
+from pathlib import Path
+from dotenv import load_dotenv
 
+load_dotenv()
 
 #########################################
 ## GENERIC
 #########################################
 
 DEBUG = os.getenv('DEBUG', 'False') == 'True'
+
+
+#VARIÁVEIS DE LDAP
+LDAPS_TLS = os.getenv("LDAP_TLS")
+LDAPS_SERVERS = os.getenv("LDAP_SERVERS")
+LDAPS_BIND_DN = os.getenv("LDAP_BIND_DN")
+LDAPS_BIND_PASSWORD = os.getenv("LDAP_BIND_PASSWORD")
+LDAPS_BASE_DN = os.getenv("LDAP_BASE_DN")
+LDAPS_BASE_SEARCH = os.getenv("LDAP_BASE_SEARCH")
+
+#VARIÁVEIS DE JWT
+JWT_SECRET_KEY = os.getenv("JWT_SECRETKEY")
+JWT_ALGORITHM = os.getenv("JWT_ALGORITHM")
+
+#VARIÁVEIS reCAPCHA
+CAPCHA_SITE_KEY = os.getenv('CAPCHA_SITE_KEY')
+CAPCHA_SECRET_KEY = os.getenv('CAPCHA_SECRET_KEY')
+CAPCHA_USE = os.getenv('CAPCHA_USE', 'True') == 'True'
+
+#LIMITE DE TENTATIVAS FALHAS DE LOGIN (rotas /auth/corporate e /auth/external, refresh e verify)
+# Padrão "5/minute"; vazio desliga; formato inválido impede a subida (ImproperlyConfigured).
+REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"]["login-fail"] = login_fail_rate_from_env(os.getenv('LOGIN_FAIL_RATE'))
 
 DATABASES = {
     'default': {
@@ -22,26 +48,29 @@ DATABASES = {
         'USER': os.getenv('POSTGRES_USER'),
         'PASSWORD': os.getenv('POSTGRES_PASSWORD'),
         'HOST': os.getenv('POSTGRES_HOST'),
-        'PORT': os.getenv('POSTGRES_PORT','5432'),
+        'PORT': os.getenv('POSTGRES_PORT','5437'),
         'OPTIONS': {'sslmode': os.getenv('POSTGRES_SSLMODE','disable')},
         'DISABLE_SERVER_SIDE_CURSORS': os.getenv('POSTGRES_DISABLE_SERVER_SIDE_CURSORS', 'False') == 'True',
     }
 }
+
 SECRET_KEY = os.getenv('TAIGA_SECRET_KEY')
 
-TAIGA_SITES_SCHEME = os.getenv('TAIGA_SITES_SCHEME')
-TAIGA_SITES_DOMAIN = os.getenv('TAIGA_SITES_DOMAIN')
+TAIGA_SCHEME = os.getenv('TAIGA_SCHEME', 'http')
+TAIGA_DOMAIN = os.getenv('TAIGA_DOMAIN', 'localhost:8000')
 FORCE_SCRIPT_NAME = os.getenv('TAIGA_SUBPATH', '')
 
-TAIGA_URL = f"{ TAIGA_SITES_SCHEME }://{ TAIGA_SITES_DOMAIN }{ FORCE_SCRIPT_NAME }"
+TAIGA_URL = f"{ TAIGA_SCHEME }://{ TAIGA_DOMAIN }{ FORCE_SCRIPT_NAME }"
 SITES = {
-        "api": { "name": "api", "scheme": TAIGA_SITES_SCHEME, "domain": TAIGA_SITES_DOMAIN },
-        "front": { "name": "front", "scheme": TAIGA_SITES_SCHEME, "domain": f"{ TAIGA_SITES_DOMAIN }{ FORCE_SCRIPT_NAME }" }
+        "api": { "name": "api", "scheme": TAIGA_SCHEME, "domain": TAIGA_DOMAIN },
+        "front": { "name": "front", "scheme": TAIGA_SCHEME, "domain": f"{ TAIGA_DOMAIN }{ FORCE_SCRIPT_NAME }" }
 }
 
-LANGUAGE_CODE = os.getenv("LANGUAGE_CODE", "en-us")
+LANGUAGE_CODE = os.getenv("LANGUAGE_CODE", "pt-br")
 
 INSTANCE_TYPE = "D"
+
+TAIGA_ADMIN_TEAM = os.getenv('TAIGA_ADMIN_TEAM', 'Server Admins')
 
 WEBHOOKS_ENABLED = os.getenv('WEBHOOKS_ENABLED', 'True') == 'True'
 WEBHOOKS_ALLOW_PRIVATE_ADDRESS = os.getenv('WEBHOOKS_ALLOW_PRIVATE_ADDRESS', 'False') == 'True'
@@ -66,7 +95,7 @@ STATIC_URL = f"{ TAIGA_URL }/static/"
 #########################################
 # https://docs.djangoproject.com/en/3.1/topics/email/
 EMAIL_BACKEND = os.getenv('EMAIL_BACKEND', 'django.core.mail.backends.console.EmailBackend')
-CHANGE_NOTIFICATIONS_MIN_INTERVAL = 120  # seconds
+CHANGE_NOTIFICATIONS_MIN_INTERVAL = 0  # seconds
 
 DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'system@taiga.io')
 EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'False') == 'True'
@@ -91,7 +120,7 @@ EVENTS_PUSH_BACKEND = "taiga.events.backends.rabbitmq.EventsPushBackend"
 
 EVENTS_PUSH_BACKEND_URL = os.getenv('EVENTS_PUSH_BACKEND_URL')
 if not EVENTS_PUSH_BACKEND_URL:
-    EVENTS_PUSH_BACKEND_URL = f"amqp://{ os.getenv('RABBITMQ_USER') }:{ os.getenv('RABBITMQ_PASS') }@{ os.getenv('TAIGA_EVENTS_RABBITMQ_HOST', 'taiga-events-rabbitmq') }:5672/taiga"
+    EVENTS_PUSH_BACKEND_URL = f"amqp://{os.getenv('RABBITMQ_USER')}:{os.getenv('RABBITMQ_PASS')}@{os.getenv('RABBITMQ_HOST')}:5672/taiga"
 
 EVENTS_PUSH_BACKEND_OPTIONS = {
     "url": EVENTS_PUSH_BACKEND_URL
@@ -106,7 +135,7 @@ from kombu import Queue  # noqa
 
 CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL')
 if not CELERY_BROKER_URL:
-    CELERY_BROKER_URL = f"amqp://{ os.getenv('RABBITMQ_USER') }:{ os.getenv('RABBITMQ_PASS') }@{ os.getenv('TAIGA_ASYNC_RABBITMQ_HOST', 'taiga-async-rabbitmq') }:5672/taiga"
+    CELERY_BROKER_URL = f"amqp://{os.getenv('RABBITMQ_USER')}:{os.getenv('RABBITMQ_PASS')}@{os.getenv('RABBITMQ_HOST')}:5672/taiga"
 
 CELERY_RESULT_BACKEND = None # for a general installation, we don't need to store the results
 CELERY_ACCEPT_CONTENT = ['pickle', ]  # Values are 'pickle', 'json', 'msgpack' and 'yaml'

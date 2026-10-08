@@ -23,6 +23,7 @@ class EpicPermission(TaigaResourcePermission):
     filters_data_perms = AllowAny()
     csv_perms = AllowAny()
     bulk_create_perms = HasProjectPerm('add_epic')
+    history_pd_perms = HasProjectPerm('view_epics')
     upvote_perms = IsAuthenticated() & HasProjectPerm('view_epics')
     downvote_perms = IsAuthenticated() & HasProjectPerm('view_epics')
     watch_perms = IsAuthenticated() & HasProjectPerm('view_epics')

@@ -30,6 +30,16 @@ def cached_prev_us(sender, instance, **kwargs):
     if instance.id:
         instance.prev = sender.objects.get(id=instance.id)
 
+####################################
+# Signals for cached prev epics from US
+####################################
+
+def cache_related_epics_before_delete(sender, instance, **kwargs):
+    if instance._importing:
+        return
+    # Get all epics related to this user story and cache their IDs in the instance
+    instance._cached_epics = list(instance.epics.all())
+
 
 ####################################
 # Signals of role points
@@ -61,14 +71,20 @@ def update_milestone_of_tasks_when_edit_us(sender, instance, created, **kwargs):
 def try_to_close_or_open_us_and_milestone_when_create_or_edit_us(sender, instance, created, **kwargs):
     if instance._importing:
         return
+    
+    # Atualizar completion_percent da UserStory
+    instance.update_completion_percent()
+    
     _try_to_close_or_open_us_when_create_or_edit_us(instance)
     _try_to_close_or_open_milestone_when_create_or_edit_us(instance)
+    _update_epics_completion_percent(instance)
 
 def try_to_close_milestone_when_delete_us(sender, instance, **kwargs):
     if instance._importing:
         return
 
     _try_to_close_milestone_when_delete_us(instance)
+    _update_epics_completion_percent_on_delete(instance)
 
 
 # US
@@ -113,3 +129,37 @@ def _try_to_close_milestone_when_delete_us(instance):
     with suppress(ObjectDoesNotExist):
         if instance.milestone_id and milestone_service.calculate_milestone_is_closed(instance.milestone):
                 milestone_service.close_milestone(instance.milestone)
+
+
+####################################
+# Signals for update epics completion percent
+####################################
+
+def _update_epics_completion_percent(instance):
+    """Update completion_percent of all epics related to this user story"""
+    if instance._importing:
+        return
+    
+    # Get all epics related to this user story
+    epics = instance.epics.all()
+    
+    # Update completion_percent for each epic
+    for epic in epics:
+        epic.update_completion_percent()
+
+
+
+def _update_epics_completion_percent_on_delete(instance):
+    """Update completion_percent of all epics that were related to this user story"""
+    if instance._importing:
+        return
+
+    # Get all epic IDs related to this user story
+    _epics = getattr(instance, "_cached_epics", [])
+    
+    # Update completion_percent for each epic
+    for epic in _epics:
+        try:
+            epic.update_completion_percent()
+        except ObjectDoesNotExist:
+            pass

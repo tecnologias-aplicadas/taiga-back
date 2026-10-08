@@ -10,6 +10,10 @@ import os.path
 import sys
 from datetime import timedelta
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 
 BASE_DIR = os.path.dirname(os.path.dirname(__file__))
 
@@ -27,13 +31,29 @@ DATABASES = {
         "ENGINE": "django.db.backends.postgresql",
         "NAME": "taiga",
         "USER": "taiga",
-        "PASSWORD": "taiga",
+        "PASSWORD": "postgres",
+        "PORT": "5432",
         "HOST": "127.0.0.1"
     }
 }
 
 DEFAULT_AUTO_FIELD = "django.db.models.AutoField"
 
+#VARIÁVEIS DE LDAP
+LDAPS_TLS = os.getenv("LDAP_TLS")
+LDAPS_SERVERS = os.getenv("LDAP_SERVERS")
+LDAPS_BIND_DN = os.getenv("LDAP_BIND_DN")
+LDAPS_BIND_PASSWORD = os.getenv("LDAP_BIND_PASSWORD")
+LDAPS_BASE_DN = os.getenv("LDAP_BASE_DN")
+LDAPS_BASE_SEARCH = os.getenv("LDAP_BASE_SEARCH")
+
+#VARIÁVEIS DE JWT
+JWT_SECRET_KEY = os.getenv("JWT_SECRETKEY")
+JWT_ALGORITHM = os.getenv("JWT_ALGORITHM")
+
+#VARIÁVEIS reCAPCHA
+CAPCHA_SITE_KEY = os.getenv('CAPCHA_SITE_KEY')
+CAPCHA_SECRET_KEY = os.getenv('CAPCHA_SECRET_KEY')
 
 CACHES = {
     "default": {
@@ -86,7 +106,7 @@ USE_I18N = True
 USE_L10N = True
 # Language code for this installation. All choices can be found here:
 # http://www.i18nguy.com/unicode/language-identifiers.html
-LANGUAGE_CODE = 'en-us'
+LANGUAGE_CODE = 'pt-br'
 
 # Languages we provide translations for, out of the box.
 LANGUAGES = [
@@ -201,21 +221,21 @@ CSRF_COOKIE_SECURE = True
 
 # MAIL OPTIONS
 DEFAULT_FROM_EMAIL = "john@doe.com"
-EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+EMAIL_BACKEND = "django.core.mail.backends.dummy.EmailBackend"
 # 0 notifications will work in a synchronous way
 # >0 an external process will check the pending notifications and will send them
 # collapsed during that interval
 CHANGE_NOTIFICATIONS_MIN_INTERVAL = 0  # seconds
 SEND_BULK_EMAILS_WITH_CELERY = True
 
-DJMAIL_REAL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+DJMAIL_REAL_BACKEND = "django.core.mail.backends.dummy.EmailBackend"
 DJMAIL_SEND_ASYNC = True
 DJMAIL_MAX_RETRY_NUMBER = 3
 DJMAIL_TEMPLATE_EXTENSION = "jinja"
 
 # Events backend
 EVENTS_PUSH_BACKEND = "taiga.events.backends.postgresql.EventsPushBackend"
-# EVENTS_PUSH_BACKEND = "taiga.events.backends.rabbitmq.EventsPushBackend"
+EVENTS_PUSH_BACKEND = "taiga.events.backends.rabbitmq.EventsPushBackend"
 # EVENTS_PUSH_BACKEND_OPTIONS = {"url": "//guest:guest@127.0.0.1/"}
 
 # Message System
@@ -331,6 +351,7 @@ INSTALLED_APPS = [
     "taiga.projects",
     "taiga.projects.references",
     "taiga.projects.custom_attributes",
+    "taiga.projects.card_relations",
     "taiga.projects.history",
     "taiga.projects.notifications",
     "taiga.projects.attachments",
@@ -340,6 +361,7 @@ INSTALLED_APPS = [
     "taiga.projects.epics",
     "taiga.projects.userstories",
     "taiga.projects.tasks",
+    "taiga.projects.updates_percent",
     "taiga.projects.issues",
     "taiga.projects.wiki",
     "taiga.projects.contact",
@@ -349,6 +371,7 @@ INSTALLED_APPS = [
     "taiga.mdrender",
     "taiga.export_import",
     "taiga.feedback",
+    "taiga.news",
     "taiga.stats",
     "taiga.hooks.github",
     "taiga.hooks.gitlab",
@@ -509,6 +532,7 @@ REST_FRAMEWORK = {
 APP_EXTRA_EXPOSE_HEADERS = [
     "taiga-info-total-opened-milestones",
     "taiga-info-total-closed-milestones",
+    "taiga-info-total-closed-milestones-without-result",
     "taiga-info-backlog-total-userstories",
     "taiga-info-userstories-without-swimlane",
     "taiga-info-project-memberships",

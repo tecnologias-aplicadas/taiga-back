@@ -544,6 +544,34 @@ def _get_issues_tags(project, queryset):
     return sorted(result, key=itemgetter("name"))
 
 
+def _get_issues_milestones(project, queryset):
+    rows = (queryset
+            .filter(milestone__isnull=False)
+            .values_list("milestone__id", "milestone__name", "milestone__closed")
+            .distinct()
+            .order_by("milestone__estimated_start"))
+
+    result = []
+
+    no_sprint_count = queryset.filter(milestone__isnull=True).count()
+    if no_sprint_count > 0:
+        result.append({
+            "id": None,
+            "name": None,
+            "closed": False,
+            "count": no_sprint_count,
+        })
+
+    for id, name, closed in rows:
+        result.append({
+            "id": id,
+            "name": name,
+            "closed": closed,
+            "count": queryset.filter(milestone__id=id).count(),
+        })
+    return result
+
+
 def get_issues_filters_data(project, querysets):
     """
     Given a project and an issues queryset, return a simple data structure
@@ -558,6 +586,7 @@ def get_issues_filters_data(project, querysets):
         ("owners", _get_issues_owners(project, querysets["owners"])),
         ("tags", _get_issues_tags(project, querysets["tags"])),
         ("roles", _get_issues_roles(project, querysets["roles"])),
+        ("milestones", _get_issues_milestones(project, querysets["milestones"])),
     ])
 
     return data

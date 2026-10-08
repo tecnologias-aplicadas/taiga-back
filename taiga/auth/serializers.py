@@ -38,20 +38,42 @@ from django.utils.translation import gettext as _
 from taiga.base.api import serializers
 from taiga.base.exceptions import ValidationError
 
-from .services import login, refresh_token, verify_token
+from .services import login_ldap, login_normal, refresh_token, verify_token
+
+#00LOGIN
+# class TokenObtainPairSerializer(serializers.Serializer):
+#     username = serializers.CharField()
+#     password = serializers.CharField(write_only=True)
+
+#     def validate(self, attrs):
+#         authenticate_kwargs = {
+#             'username': attrs['username'],
+#             'password': attrs['password'],
+#         }
+
+#         return login(**authenticate_kwargs)
 
 
-class TokenObtainPairSerializer(serializers.Serializer):
+class TokenObtainLDAPSerializer(serializers.Serializer):
     username = serializers.CharField()
     password = serializers.CharField(write_only=True)
 
     def validate(self, attrs):
-        authenticate_kwargs = {
-            'username': attrs['username'],
-            'password': attrs['password'],
-        }
+        return login_ldap(
+            username=attrs['username'],
+            password=attrs['password'],
+        )
 
-        return login(**authenticate_kwargs)
+
+class TokenObtainNormalSerializer(serializers.Serializer):
+    username = serializers.CharField()
+    password = serializers.CharField(write_only=True)
+
+    def validate(self, attrs):
+        return login_normal(
+            username=attrs['username'],
+            password=attrs['password'],
+        )
 
 
 class TokenRefreshSerializer(serializers.Serializer):

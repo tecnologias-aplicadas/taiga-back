@@ -18,15 +18,24 @@ ENV PYTHONFAULTHANDLER=1
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
+# Get GitLab Access Token
+ARG AT_TAIGA_CONTRIB_PROTECTED
+
+# Pre-caching pip dependencies
+COPY .cache/pip/wheels /root/.cache/pip/wheels
+
 # Get the code
 COPY . /taiga-back
 WORKDIR /taiga-back
 
 # grab gosu for easy step-down from root
 # https://github.com/tianon/gosu/blob/master/INSTALL.md
-ENV GOSU_VERSION 1.12
+ENV GOSU_VERSION=1.12
 
 RUN set -eux; \
+    # Change env from requirements-contribs.txt
+    chmod +x docker/config_env_subst.sh; \
+    ./docker/config_env_subst.sh; \
     apt-get update; \
     # install system dependencies
     apt-get install -y \
@@ -38,7 +47,21 @@ RUN set -eux; \
        git \
        net-tools \
        procps \
-       wget; \
+       wget \
+       gnupg \
+       dirmngr \
+       # Valéria Tools
+       libjpeg-dev \
+       libfreetype6-dev \
+       zlib1g-dev \ 
+       libzmq3-dev \
+       libgdbm-dev \
+       libncurses5-dev \
+       libtool \ 
+       libxml2-dev \
+       libxslt-dev \
+       libssl-dev \
+       libffi-dev; \
     # install gosu
     apt-get install -y --no-install-recommends ca-certificates wget; \
     dpkgArch="$(dpkg --print-architecture | awk -F- '{ print $NF }')"; \
@@ -57,10 +80,9 @@ RUN set -eux; \
     python -m pip install -r requirements.txt; \
     python -m pip install -r requirements-contribs.txt; \
     python manage.py compilemessages; \
-    python manage.py collectstatic --no-input; \
+    python manage.py collectstatic --no-input --clear; \
     chmod +x docker/entrypoint.sh; \
     chmod +x docker/async_entrypoint.sh; \
-    cp docker/config.py settings/config.py; \
     #  create taiga group and user to use it and give permissions over the code (in entrypoint)
     groupadd --system taiga --gid=999; \
     useradd --system --no-create-home --gid taiga --uid=999 --shell=/bin/bash taiga; \
@@ -74,10 +96,22 @@ RUN set -eux; \
        libpq-dev \
        net-tools \
        procps \
-       wget; \
+       wget \
+       libtool \ 
+       libjpeg-dev \
+       libfreetype6-dev \
+       zlib1g-dev \ 
+       libzmq3-dev \
+       libgdbm-dev \
+       libncurses5-dev \
+       libxml2-dev \
+       libxslt-dev \
+       libssl-dev \
+       libffi-dev; \
     apt-get autoremove -y; \
     rm -rf /var/lib/apt/lists/*; \
     rm -rf /root/.cache; \
+    rm -rf .cache; \
     # clean taiga
     rm requirements.txt; \
     rm requirements-contribs.txt; \

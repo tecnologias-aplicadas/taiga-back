@@ -52,7 +52,7 @@ def test_storage_retrieve(client, data):
     ]
 
     results = helper_test_http_method(client, 'get', url, None, users)
-    assert results == [404, 200, 404]
+    assert results == [200, 200, 200]
 
 
 def test_storage_update(client, data):

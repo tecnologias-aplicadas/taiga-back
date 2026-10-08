@@ -9,13 +9,24 @@ from django.utils.translation import gettext as _
 
 from taiga.base.api import serializers
 from taiga.base.api import validators
+from taiga.base.api.fields import BooleanField as BaseBooleanField
 from taiga.base.exceptions import ValidationError
 from taiga.base.fields import PgArrayField
+
+
+class NullBooleanField(BaseBooleanField):
+    """BooleanField que aceita null/None como valor válido."""
+    empty = None
+
+    def from_native(self, value):
+        if value is None or value in ("null", "None", ""):
+            return None
+        return super().from_native(value)
 from taiga.projects.mixins.validators import AssignedToValidator
 from taiga.projects.notifications.mixins import EditableWatchedResourceSerializer
 from taiga.projects.notifications.validators import WatchersValidator
 from taiga.projects.tagging.fields import TagsAndTagsColorsField
-from taiga.projects.validators import ProjectExistsValidator
+from taiga.projects.validators import ProjectExistsValidator, BlockedStatusPreventsClosedStatusMixin
 from . import models
 
 
@@ -23,35 +34,37 @@ class EpicExistsValidator:
     def validate_epic_id(self, attrs, source):
         value = attrs[source]
         if not models.Epic.objects.filter(pk=value).exists():
-            msg = _("There's no epic with that id")
-            raise ValidationError(msg)
+            raise ValidationError({"code": "epic_not_found"})
         return attrs
 
 
 class EpicValidator(AssignedToValidator, WatchersValidator, EditableWatchedResourceSerializer,
-                    validators.ModelValidator):
+                    validators.ModelValidator, BlockedStatusPreventsClosedStatusMixin):
     tags = TagsAndTagsColorsField(default=[], required=False)
     external_reference = PgArrayField(required=False)
+    schedulable = NullBooleanField(required=False)
 
     class Meta:
         model = models.Epic
         read_only_fields = ('id', 'ref', 'created_date', 'modified_date', 'owner')
+        
+    
 
 
 class EpicsBulkValidator(ProjectExistsValidator, EpicExistsValidator,
-                         validators.Validator):
+                         validators.Validator, BlockedStatusPreventsClosedStatusMixin):
     project_id = serializers.IntegerField()
     status_id = serializers.IntegerField(required=False)
     bulk_epics = serializers.CharField()
 
 
 class CreateRelatedUserStoriesBulkValidator(ProjectExistsValidator, EpicExistsValidator,
-                                            validators.Validator):
+                                            validators.Validator, BlockedStatusPreventsClosedStatusMixin):
     project_id = serializers.IntegerField()
     bulk_userstories = serializers.CharField()
 
 
-class EpicRelatedUserStoryValidator(validators.ModelValidator):
+class EpicRelatedUserStoryValidator(validators.ModelValidator, BlockedStatusPreventsClosedStatusMixin):
     class Meta:
         model = models.RelatedUserStory
         read_only_fields = ('id',)

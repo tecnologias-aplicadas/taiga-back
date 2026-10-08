@@ -32,6 +32,7 @@ class IssueListSerializer(VoteResourceSerializerMixin, WatchedResourceSerializer
     priority = Field(attr="priority_id")
     type = Field(attr="type_id")
     milestone = Field(attr="milestone_id")
+    milestone_name = MethodField()
     project = Field(attr="project_id")
     created_date = Field()
     modified_date = Field()
@@ -43,6 +44,9 @@ class IssueListSerializer(VoteResourceSerializerMixin, WatchedResourceSerializer
     is_blocked = Field()
     blocked_note = Field()
     is_closed = Field()
+
+    def get_milestone_name(self, obj):
+        return obj.milestone.name if obj.milestone else None
 
 
 class IssueSerializer(IssueListSerializer):

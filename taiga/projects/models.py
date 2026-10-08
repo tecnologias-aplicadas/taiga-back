@@ -5,16 +5,23 @@
 #
 # Copyright (c) 2021-present Kaleidos INC
 
+import enum
+
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
+from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db import models
-from django.db.models import Q
+from django.db import transaction
+from django.db.models import Q, Count, Avg
 from django.apps import apps
 from django.utils.translation import gettext_lazy as _
 from django.utils import timezone
 from django.utils.functional import cached_property
+from taiga.projects.tasks.models import Task
+
+
 
 from django_pglocks import advisory_lock
 
@@ -44,6 +51,7 @@ from taiga.timeline.service import build_project_namespace
 from . import choices
 
 from dateutil.relativedelta import relativedelta
+from datetime import date
 
 
 def get_project_logo_file_path(instance, filename):
@@ -250,6 +258,13 @@ class Project(ProjectDefaults, TaggedMixin, TagsColorsMixin, models.Model):
     blocked_code = models.CharField(null=True, blank=True, max_length=255,
                                     choices=choices.BLOCKING_CODES + settings.EXTRA_BLOCKING_CODES,
                                     default=None, verbose_name=_("blocked code"))
+
+    start_date = models.DateField(null=False, blank=False, default=date(2000, 1, 1), verbose_name=_("start date"))
+
+    expected_end_date = models.DateField(null=False, blank=False, default=date(2000, 1, 1), verbose_name=_("expected end date"))
+
+    end_date = models.DateField(null=True, blank=True, default=None, verbose_name=_("end date"))
+
     # Totals:
     totals_updated_datetime = models.DateTimeField(null=False, blank=False, auto_now_add=True,
                                                    verbose_name=_("updated date time"), db_index=True)
@@ -327,6 +342,12 @@ class Project(ProjectDefaults, TaggedMixin, TagsColorsMixin, models.Model):
                 super().save(*args, **kwargs)
         else:
             super().save(*args, **kwargs)
+
+    def clean(self):
+        if (
+            self.start_date and self.end_date and self.start_date > self.end_date) or (
+                self.start_date and self.expected_end_date and self.start_date > self.expected_end_date):
+            raise ValidationError(_('The estimated start must be previous to the estimated finish.'))
 
     def refresh_totals(self, save=True):
         now = timezone.now()
@@ -701,6 +722,14 @@ class TaskStatus(models.Model):
                                     verbose_name=_("is closed"))
     color = models.CharField(max_length=20, null=False, blank=False, default="#999999",
                              verbose_name=_("color"))
+    completion_percent = models.PositiveSmallIntegerField(
+        default=None,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        help_text="Completion percentage of the task (0 to 100)",
+        verbose_name=_("completion percent"),
+        blank=True,
+        null=True
+    )
     project = models.ForeignKey(
         "Project",
         null=False,
@@ -725,7 +754,55 @@ class TaskStatus(models.Model):
             qs = qs.exclude(id=self.id)
 
         self.slug = slugify_uniquely_for_queryset(self.name, qs)
-        return super().save(*args, **kwargs)
+        
+        if self.completion_percent == 100 and not self.is_closed:
+            self.completion_percent = 99
+            # Uma tarefa só pode ser considerada 100% se está fechada, por isso foi adicionado esta condição.
+
+        if self.is_closed:
+            self.completion_percent = 100
+            # Uma tarefa fechada deve ser sempre considerada 100% completa.
+
+        # Verifica se completion_percent mudou (antes do save)
+        old_completion_percent = None
+        if self.pk:
+            old_completion_percent = type(self).objects.only('completion_percent').get(pk=self.pk).completion_percent
+
+        with transaction.atomic():
+            result = super().save(*args, **kwargs)
+
+            # Propaga mudança para Tasks e deixa os signals cuidarem de US/Epics
+            if old_completion_percent != self.completion_percent:
+
+                tasks_qs = (
+                    Task.objects
+                    .filter(status=self, project=self.project)
+                    # fields mínimos; select_related ajuda os signals a evitar N+1
+                    .only('id', 'completion_percent_progress', 'completion_percent_done', 'user_story_id', 'status_id', 'milestone_id', 'finished_date')
+                    .select_related('status', 'user_story', 'milestone')
+                )
+
+                # Salva um a um para disparar pre/post_save e consequentemente os signals
+                for t in tasks_qs.iterator(chunk_size=500):                  
+                    if self.completion_percent is None:
+                        if old_completion_percent == 100: # era uma coluna fechada, então reabrir
+                            t.completion_percent_progress = 99
+                            t.completion_percent_done = 0
+                            t.finished_date = None
+                        else:
+                            continue  # Nada a fazer
+                    elif self.completion_percent == 100:
+                        t.completion_percent_done = 100
+                        t.finished_date = timezone.now()
+                        t.completion_percent_progress = 0
+                    else:
+                        t.completion_percent_done = 0
+                        t.finished_date = None
+                        t.completion_percent_progress = self.completion_percent
+                    t.save(update_fields=['completion_percent_progress', 'completion_percent_done', 'finished_date'])
+
+        return result
+
 
 
 class TaskDueDate(models.Model):
@@ -1123,6 +1200,7 @@ class ProjectTemplate(TaggedMixin, TagsColorsMixin, models.Model):
                 "is_closed": task_status.is_closed,
                 "color": task_status.color,
                 "order": task_status.order,
+                "completion_percent": task_status.completion_percent,
             })
 
         self.task_duedates = []
@@ -1236,6 +1314,17 @@ class ProjectTemplate(TaggedMixin, TagsColorsMixin, models.Model):
         self.is_looking_for_people = project.is_looking_for_people
         self.looking_for_people_note = project.looking_for_people_note
 
+    @staticmethod
+    def _task_status_completion_percent_from_template(value):
+        # Templates antigos não têm a chave e valores fora de 0-100 não são copiados:
+        # o status nasce sem progresso parcial. O save() do TaskStatus faz a
+        # normalização de 99/100 conforme is_closed.
+        if isinstance(value, bool) or not isinstance(value, int):
+            return None
+        if value < 0 or value > 100:
+            return None
+        return value
+
     def apply_to_project(self, project):
         Role = apps.get_model("users", "Role")
 
@@ -1299,6 +1388,9 @@ class ProjectTemplate(TaggedMixin, TagsColorsMixin, models.Model):
                 is_closed=task_status["is_closed"],
                 color=task_status["color"],
                 order=task_status["order"],
+                completion_percent=self._task_status_completion_percent_from_template(
+                    task_status.get("completion_percent")
+                ),
                 project=project
             )
 

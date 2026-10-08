@@ -5,6 +5,8 @@
 #
 # Copyright (c) 2021-present Kaleidos INC
 
+from django.utils import timezone
+
 from taiga.base.utils import db
 from taiga.events import events
 from taiga.projects.history.services import take_snapshot
@@ -12,6 +14,8 @@ from taiga.projects.services import apply_order_updates
 from taiga.projects.issues.models import Issue
 from taiga.projects.tasks.models import Task
 from taiga.projects.userstories.models import UserStory
+
+from .models import Milestone
 
 
 def calculate_milestone_is_closed(milestone):
@@ -30,6 +34,46 @@ def calculate_milestone_is_closed(milestone):
         and all_issues_closed and all_tasks_closed and all_us_closed)
 
     return uss_check or issues_check or tasks_check
+
+
+def milestone_has_closed_items(milestone):
+    """
+    True se a sprint tem ao menos uma atividade fechada, no mesmo sentido de
+    `calculate_milestone_is_closed`: história fechada, tarefa sem história com
+    status fechado ou issue fechada.
+    """
+    return (milestone.user_stories.filter(is_closed=True).exists()
+            or milestone.tasks.filter(user_story__isnull=True, status__is_closed=True).exists()
+            or milestone.issues.filter(status__is_closed=True).exists())
+
+
+def get_unfinished_milestone_items(milestone):
+    """
+    Itens da sprint ainda não finalizados, no formato dos serviços de movimentação
+    em massa: (bulk_stories, bulk_tasks, bulk_issues).
+    """
+    bulk_stories = [{"us_id": us.id, "order": us.sprint_order}
+                    for us in milestone.user_stories.filter(is_closed=False)]
+    bulk_tasks = [{"task_id": task.id, "order": task.taskboard_order}
+                  for task in milestone.tasks.filter(user_story__isnull=True)
+                                            .exclude(status__is_closed=True)]
+    bulk_issues = [{"issue_id": issue.id}
+                   for issue in milestone.issues.exclude(status__is_closed=True)]
+    return bulk_stories, bulk_tasks, bulk_issues
+
+
+def register_milestone_result(milestone, goal_achievement, result, user):
+    """
+    Grava o resultado do objetivo só se ainda não houver resultado (RN06ADQ).
+    Retorna True se gravou; False se outro registro chegou antes.
+    """
+    updated = Milestone.objects.filter(pk=milestone.pk, result__isnull=True).update(
+        goal_achievement=goal_achievement,
+        result=result,
+        result_date=timezone.now(),
+        result_by=user,
+    )
+    return updated == 1
 
 
 def close_milestone(milestone):

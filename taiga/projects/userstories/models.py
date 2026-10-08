@@ -11,6 +11,8 @@ from django.contrib.postgres.fields import ArrayField
 from django.conf import settings
 from django.utils.translation import gettext_lazy as _
 from django.utils import timezone
+from decimal import Decimal, ROUND_HALF_UP
+from django.core.validators import MinValueValidator, MaxValueValidator
 
 from picklefield.fields import PickledObjectField
 
@@ -143,6 +145,19 @@ class UserStory(OCCModelMixin, WatchedModelMixin, BlockedMixin, TaggedMixin, Due
     swimlane = models.ForeignKey("projects.Swimlane", null=True, blank=True,
                                  related_name="user_stories", verbose_name=_("swimlane"),
                                  on_delete=models.SET_NULL)
+    
+    completion_percent_progress = models.DecimalField(
+        max_digits=5, decimal_places=2, default=Decimal("0.00"),
+        validators=[MinValueValidator(Decimal("0.00")), MaxValueValidator(Decimal("100.00"))],
+        help_text="Percentual de conclusão baseado nas tasks (0.00 a 100.00)",
+        verbose_name=_("completion percent progress"),
+    )
+    completion_percent_done = models.DecimalField(
+        max_digits=5, decimal_places=2, default=Decimal("0.00"),
+        validators=[MinValueValidator(Decimal("0.00")), MaxValueValidator(Decimal("100.00"))],
+        help_text="Percentual concluído (0.00 a 100.00)",
+        verbose_name=_("completion percent done"),
+    )
 
     _importing = None
 
@@ -150,6 +165,16 @@ class UserStory(OCCModelMixin, WatchedModelMixin, BlockedMixin, TaggedMixin, Due
         verbose_name = "user story"
         verbose_name_plural = "user stories"
         ordering = ["project", "backlog_order", "ref"]
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(completion_percent_progress__gte=0) & models.Q(completion_percent_progress__lte=100),
+                name="us_percent_progress_0_100",
+            ),
+            models.CheckConstraint(
+                check=models.Q(completion_percent_done__gte=0) & models.Q(completion_percent_done__lte=100),
+                name="us_percent_done_0_100",
+            ),
+        ]
 
     def save(self, *args, **kwargs):
         if not self._importing or not self.modified_date:
@@ -157,7 +182,7 @@ class UserStory(OCCModelMixin, WatchedModelMixin, BlockedMixin, TaggedMixin, Due
 
         if not self.status:
             self.status = self.project.default_us_status
-
+        
         super().save(*args, **kwargs)
 
         if not self.role_points.all():
@@ -165,6 +190,11 @@ class UserStory(OCCModelMixin, WatchedModelMixin, BlockedMixin, TaggedMixin, Due
                 RolePoints.objects.create(role=role,
                                           points=self.project.default_points,
                                           user_story=self)
+        
+        # A história não precisa da validação do self.pk igual ocorre na épica
+        # self.update_completion_percent()
+
+
 
     def __str__(self):
         return "({1}) {0}".format(self.ref, self.subject)
@@ -190,3 +220,77 @@ class UserStory(OCCModelMixin, WatchedModelMixin, BlockedMixin, TaggedMixin, Due
 
     def get_roles(self):
         return self.project.roles.filter(computable=True).all()
+    
+    def _q2(self, value) -> Decimal:
+        """Quantiza para 2 casas, meio-para-cima."""
+        if not isinstance(value, Decimal):
+            value = Decimal(str(value))
+        return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    def calculate_completion_percent_progress(self) -> Decimal:
+        """
+        Percentual de progresso = média do completion_percent_progress das tasks (0..100).
+        Se não houver tasks, usa 100.00 se o US estiver fechado, senão 0.00.
+        """
+        # Se não houver tasks, o percentual é dado pelo status.is_closed do US
+        qs = self.tasks.all()
+        total_count = qs.count()
+        if total_count == 0:
+            return self._q2(Decimal("100.00") if (self.status and self.status.is_closed) else Decimal("0.00"))
+
+        # Somatório dos percentuais (já são Decimal nas tasks)
+        total = Decimal("0.00")
+        for v in qs.values_list("completion_percent_progress", flat=True):
+            total += (v if isinstance(v, Decimal) else Decimal(str(v)))
+
+        avg = total / Decimal(total_count)
+        if avg < 0:
+            avg = Decimal("0.00")
+        elif avg > 100:
+            avg = Decimal("100.00")
+        return self._q2(avg)
+
+    def calculate_completion_percent_done(self) -> Decimal:
+        """
+        Percentual 'done' = soma dos percentuais das tasks FECHADAS dividido pelo total de tasks.
+        (média ponderada das fechadas sobre o total)
+        Se não houver tasks, usa 100.00 se o US estiver fechado, senão 0.00.
+        """
+        qs = self.tasks.all()
+        total_count = qs.count()
+        if total_count == 0:
+            return self._q2(Decimal("100.00") if (self.status and self.status.is_closed) else Decimal("0.00"))
+
+        total = Decimal("0.00")
+        for v in qs.values_list("completion_percent_done", flat=True):
+            total += (v if isinstance(v, Decimal) else Decimal(str(v)))
+
+        avg = total / Decimal(total_count)
+        if avg < 0:
+            avg = Decimal("0.00")
+        elif avg > 100:
+            avg = Decimal("100.00")
+        return self._q2(avg)
+
+    def update_completion_percent(self) -> bool:
+        """Atualiza ambos os percentuais e salva se houver mudança."""
+        new_progress = self.calculate_completion_percent_progress()
+        new_done = self.calculate_completion_percent_done()
+
+        updated_fields = []
+
+        if new_progress == 100 or new_done == 100:
+            new_progress = Decimal("0.00")
+            new_done = Decimal("100.00")
+            
+        
+        if (new_progress != self.completion_percent_progress):
+            self.completion_percent_progress = new_progress
+            updated_fields.append("completion_percent_progress")
+        if (new_done != self.completion_percent_done):
+            self.completion_percent_done = new_done
+            updated_fields.append("completion_percent_done")
+        if len(updated_fields) > 0:
+            super(UserStory, self).save(update_fields=updated_fields)
+            return True
+        return False

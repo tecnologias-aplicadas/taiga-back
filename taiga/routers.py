@@ -32,6 +32,13 @@ from taiga.userstorage.api import StorageEntriesViewSet
 router.register(r"user-storage", StorageEntriesViewSet, base_name="user-storage")
 
 
+# News (carrossel da home pública)
+
+from taiga.news.api import SlideViewSet
+
+router.register(r"news", SlideViewSet, base_name="news")
+
+
 # Notifications & Notify policies
 from taiga.projects.notifications.api import NotifyPolicyViewSet
 from taiga.projects.notifications.api import WebNotificationsViewSet
@@ -233,12 +240,19 @@ from taiga.projects.history.api import UserStoryHistory
 from taiga.projects.history.api import TaskHistory
 from taiga.projects.history.api import IssueHistory
 from taiga.projects.history.api import WikiHistory
+from taiga.projects.history.api import CommentReactionViewSet
 
 router.register(r"history/epic", EpicHistory, base_name="epic-history")
 router.register(r"history/userstory", UserStoryHistory, base_name="userstory-history")
 router.register(r"history/task", TaskHistory, base_name="task-history")
 router.register(r"history/issue", IssueHistory, base_name="issue-history")
 router.register(r"history/wiki", WikiHistory, base_name="wiki-history")
+router.register(r"comments/(?P<comment_pk>[^/.]+)/reactions", CommentReactionViewSet, base_name="comment-reactions")
+
+comment_reactions_add = CommentReactionViewSet.as_view({'post': 'add_reaction',})
+comment_reactions_remove = CommentReactionViewSet.as_view({'delete': 'remove_reaction',})
+comment_reactions_list_reactions = CommentReactionViewSet.as_view({'get': 'list_reactions',})
+
 
 # Contact
 from taiga.projects.contact.api import ContactViewSet
@@ -253,6 +267,14 @@ from taiga.timeline.api import ProjectTimeline
 router.register(r"timeline/profile", ProfileTimeline, base_name="profile-timeline")
 router.register(r"timeline/user", UserTimeline, base_name="user-timeline")
 router.register(r"timeline/project", ProjectTimeline, base_name="project-timeline")
+
+
+
+# Card Relations - 110 Relacionamento entre Atividades na TAIGA
+
+from taiga.projects.card_relations.api import CardRelationViewSet
+
+router.register(r"card-relations", CardRelationViewSet, base_name="card-relations")
 
 
 # Webhooks
@@ -316,6 +338,15 @@ if settings.IMPORTERS.get('github', {}).get('active', False):
 if settings.IMPORTERS.get('asana', {}).get('active', False):
     from taiga.importers.asana.api import AsanaImporterViewSet
     router.register(r"importers/asana", AsanaImporterViewSet, base_name="importers-asana")
+
+from django.urls import path, include
+
+urlpatterns = [
+    path('', include(router.urls)),
+    path('comments/<uuid:comment_pk>/reactions/add_reaction/', comment_reactions_add, name='comment-reactions-add'),
+    path('comments/<uuid:comment_pk>/reactions/remove_reaction/', comment_reactions_remove, name='comment-reactions-remove'),
+    path('comments/<uuid:comment_pk>/reactions/list_reactions/', comment_reactions_list_reactions, name='comment-reactions-list-reactions'),
+]
 
 
 # Stats

@@ -25,12 +25,11 @@ def teardown_module(module):
 
 
 def test_auth_create(client):
-    url = reverse('auth-list')
+    url = reverse('auth-external')
 
     user = f.UserFactory.create()
 
     login_data = json.dumps({
-        "type": "normal",
         "username": user.username,
         "password": user.username,
     })
@@ -40,12 +39,11 @@ def test_auth_create(client):
 
 
 def test_auth_refresh(client):
-    url = reverse('auth-list')
+    url = reverse('auth-external')
 
     user = f.UserFactory.create()
 
     login_data = json.dumps({
-        "type": "normal",
         "username": user.username,
         "password": user.username,
     })

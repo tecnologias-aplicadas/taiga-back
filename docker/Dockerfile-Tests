@@ -1,0 +1,35 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+#
+# Copyright (c) 2021-present Kaleidos INC
+
+FROM python:3.11-slim
+LABEL maintainer="support@taiga.io"
+
+# Avoid prompting for configuration
+ENV DEBIAN_FRONTEND=noninteractive
+
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONFAULTHANDLER=1
+
+# Use a virtualenv
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Get GitLab Access Token
+ARG AT_TAIGA_CONTRIB_PROTECTED
+
+# Get the code
+COPY . /taiga-back
+WORKDIR /taiga-back
+
+RUN set -eux; \
+    rm requirements.txt; \
+    chmod +x docker/config_env_subst.sh; \
+    ./docker/config_env_subst.sh
+
+ENV DJANGO_SETTINGS_MODULE=settings.config
+
+EXPOSE 8000

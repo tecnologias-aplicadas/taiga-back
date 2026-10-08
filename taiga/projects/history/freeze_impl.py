@@ -177,7 +177,125 @@ def wikipage_values(diff):
     values = _common_users_values(diff)
     return values
 
+from django.apps import apps
 
+
+#187 Histórico de alteração de relacionamento
+def cardrelation_values(diff, obj=None):
+    values = {}
+
+    RELATION_LABELS = {
+        "RT": "RELATED TO",
+        "BK": "BLOCKS",
+        "BKBY": "BLOCKED BY",
+        "DPON": "DEPENDS ON",
+        "DPME": "DEPENDS ME",
+        "DUBY": "DUPLICATED BY",
+        "DUFROM": "DUPLICATED FROM",
+        "DWT": "DISCOVERED WHILE TESTING",
+        "LTDWT": "LED TO DISCOVERED WHILE TESTING"
+    }
+
+    def get_model_for_type(card_type):
+        model_map = {
+            "issue": ("issues", "Issue"),
+            "userstory": ("userstories", "UserStory"),
+            "task": ("tasks", "Task"),
+            "epic": ("epics", "Epic"),
+        }
+
+        mapping = model_map.get(card_type)
+
+        if not mapping:
+            return None
+
+        app_label, model_name = mapping
+        return apps.get_model(app_label, model_name)
+    
+    def build_description(snapshot):
+        if not snapshot:
+            return None
+
+        source_type = snapshot.get("source_type")
+        source_id = snapshot.get("source_id")
+        target_type = snapshot.get("target_type")
+        target_id = snapshot.get("target_id")
+        relation_type = snapshot.get("relation_type")
+
+        SourceModel = get_model_for_type(source_type)
+        TargetModel = get_model_for_type(target_type)
+
+        source_ref = None
+        target_ref = None
+
+        if SourceModel:
+            source_obj = (
+                SourceModel.objects.filter(id=source_id)
+                .only("ref")
+                .first()
+            )
+            if source_obj:
+                source_ref = source_obj.ref
+
+        if TargetModel:
+            target_obj = (
+                TargetModel.objects.filter(id=target_id)
+                .only("ref")
+                .first()
+            )
+            if target_obj:
+                target_ref = target_obj.ref
+
+        relation_display = RELATION_LABELS.get(
+            relation_type, relation_type
+        )
+
+        if source_ref and target_ref:
+            return (
+                f"{source_type.upper()}-{source_ref} "
+                f"{relation_display} "
+                f"{target_type.upper()}-{target_ref}"
+            )
+
+        return None
+
+    # Caso criação
+    if diff.get("created"):
+        description = build_description(diff.get("snapshot"))
+        if description:
+            values["relation"] = {
+                "from": None,
+                "to": description,
+            }
+        return values
+
+    # Caso desativação (soft delete)
+    if "is_active" in diff:
+        old, new = diff["is_active"]
+
+        if old is True and new is False:
+            description = build_description(diff.get("snapshot"))
+            if description:
+                values["relation"] = {
+                    "from": description,
+                    "to": "Relation removed",
+                }
+            return values
+
+    # Alteração de tipo
+    if "relation_type" in diff:
+        old, new = diff["relation_type"]
+
+        old_label = RELATION_LABELS.get(old, old)
+        new_label = RELATION_LABELS.get(new, new)
+
+        values["relation_type"] = {
+            "from": old_label,
+            "to": new_label,
+        }
+
+    return values        
+        
 ####################
 # Freezes
 ####################
@@ -301,6 +419,8 @@ def epic_freezer(epic) -> dict:
         "description": epic.description,
         "description_html": mdrender(epic.project, epic.description),
         "assigned_to": epic.assigned_to_id,
+        "start_date": epic.start_date.isoformat() if epic.start_date else None,
+        "expected_completion_date": epic.expected_completion_date.isoformat() if epic.expected_completion_date else None,
         "client_requirement": epic.client_requirement,
         "team_requirement": epic.team_requirement,
         "attachments": extract_attachments(epic),
@@ -436,6 +556,21 @@ def wikipage_freezer(wiki) -> dict:
         "content": wiki.content,
         "content_html": mdrender(wiki.project, wiki.content),
         "attachments": extract_attachments(wiki),
+    }
+
+    return snapshot
+
+#187 Histórico de alteração de relacionamento
+def cardrelation_freezer(card_relation) -> dict:
+    snapshot = {
+        "project": card_relation.project_id,
+        "source_type": card_relation.source_type,
+        "source_id": card_relation.source_id,
+        "target_type": card_relation.target_type,
+        "target_id": card_relation.target_id,
+        "relation_type": card_relation.relation_type,
+        "is_active": card_relation.is_active,
+        "resolved_date": card_relation.resolved_date,
     }
 
     return snapshot

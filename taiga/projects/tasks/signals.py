@@ -39,12 +39,18 @@ def _try_to_close_or_open_us_when_create_or_edit_task(instance):
     from taiga.projects.userstories import services as us_service
 
     if instance.user_story_id:
+        # Atualizar completion_percent da UserStory
+        instance.user_story.update_completion_percent()
+        
         if us_service.calculate_userstory_is_closed(instance.user_story):
             us_service.close_userstory(instance.user_story)
         else:
             us_service.open_userstory(instance.user_story)
 
     if instance.prev and instance.prev.user_story_id and instance.prev.user_story_id != instance.user_story_id:
+        # Atualizar completion_percent da UserStory anterior
+        instance.prev.user_story.update_completion_percent()
+        
         if us_service.calculate_userstory_is_closed(instance.prev.user_story):
             us_service.close_userstory(instance.prev.user_story)
         else:
@@ -56,6 +62,9 @@ def _try_to_close_or_open_us_when_delete_task(instance):
 
     with suppress(ObjectDoesNotExist):
         if instance.user_story_id:
+            # Atualizar completion_percent da UserStory
+            instance.user_story.update_completion_percent()
+
             if us_service.calculate_userstory_is_closed(instance.user_story):
                 us_service.close_userstory(instance.user_story)
             else:

@@ -334,3 +334,34 @@ class DuplicateProjectValidator(validators.Validator):
     description = serializers.CharField()
     is_private = serializers.BooleanField()
     users = DuplicateProjectMemberValidator(many=True)
+    
+######################################################
+# Blocked cards relations
+######################################################
+
+class BlockedStatusPreventsClosedStatusMixin(object):
+    blocked_field_name = "is_blocked"
+    
+    def validate_status(self, attrs, source):
+        status = attrs.get(source)
+        instance = self.object
+
+        if instance is None or status is None:
+            return attrs
+        
+        old_status = getattr(instance, "status", None)
+        
+        if old_status == status:
+            return attrs
+        
+        if not getattr(status, "is_closed", False):
+            return attrs
+        
+        field_name = getattr(self, "blocked_field_name", "is_blocked")
+        is_blocked = attrs.get(field_name, getattr(instance, field_name, False))
+
+        if is_blocked:
+            raise ValidationError({"code": "blocked_item_cannot_be_closed"})
+
+        return attrs
+

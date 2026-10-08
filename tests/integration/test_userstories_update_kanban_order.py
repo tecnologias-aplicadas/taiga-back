@@ -29,6 +29,10 @@ import pytest
 pytestmark = pytest.mark.django_db(transaction=True)
 
 
+def _strip_model(response_json):
+    return [{k: v for k, v in item.items() if k != "model"} for item in response_json]
+
+
 ##############################
 ## Move to no swimlane
 ##############################
@@ -76,7 +80,7 @@ def test_api_update_orders_in_bulk_succeeds_moved_to_no_swimlane_and_to_the_begi
     res = (project.user_stories.filter(id__in=updated_ids)
                                .values("id", "swimlane", "kanban_order", "status")
                                .order_by("kanban_order", "id"))
-    assert response.json() == list(res)
+    assert _strip_model(response.json()) == list(res)
 
     us1.refresh_from_db()
     us2.refresh_from_db()
@@ -137,7 +141,7 @@ def test_api_update_orders_in_bulk_succeeds_moved_to_no_swimlane_and_to_the_midd
     res = (project.user_stories.filter(id__in=updated_ids)
                                .values("id", "swimlane", "kanban_order", "status")
                                .order_by("kanban_order", "id"))
-    assert response.json() == list(res)
+    assert _strip_model(response.json()) == list(res)
 
     us1.refresh_from_db()
     us2.refresh_from_db()
@@ -201,7 +205,7 @@ def test_api_update_orders_in_bulk_succeeds_moved_to_no_swimlane_and_to_the_end(
     res = (project.user_stories.filter(id__in=updated_ids)
                                .values("id", "swimlane", "kanban_order", "status")
                                .order_by("kanban_order", "id"))
-    assert response.json() == list(res)
+    assert _strip_model(response.json()) == list(res)
 
     us1.refresh_from_db()
     us2.refresh_from_db()
@@ -257,7 +261,7 @@ def test_api_update_orders_in_bulk_succeeds_moved_to_no_swimlane_and_before_a_us
     res = (project.user_stories.filter(id__in=updated_ids)
                                .values("id", "swimlane", "kanban_order", "status")
                                .order_by("kanban_order", "id"))
-    assert response.json() == list(res)
+    assert _strip_model(response.json()) == list(res)
 
     us1.refresh_from_db()
     us2.refresh_from_db()
@@ -321,7 +325,7 @@ def test_api_update_orders_in_bulk_succeeds_moved_to_a_swimlane_and_to_the_begin
     res = (project.user_stories.filter(id__in=updated_ids)
                                .values("id", "swimlane", "kanban_order", "status")
                                .order_by("kanban_order", "id"))
-    assert response.json() == list(res)
+    assert _strip_model(response.json()) == list(res)
 
     us1.refresh_from_db()
     us2.refresh_from_db()
@@ -384,7 +388,7 @@ def test_api_update_orders_in_bulk_succeeds_moved_to_a_swimlane_and_to_the_middl
     res = (project.user_stories.filter(id__in=updated_ids)
                                .values("id", "swimlane", "kanban_order", "status")
                                .order_by("kanban_order", "id"))
-    assert response.json() == list(res)
+    assert _strip_model(response.json()) == list(res)
 
     us1.refresh_from_db()
     us2.refresh_from_db()
@@ -450,7 +454,7 @@ def test_api_update_orders_in_bulk_succeeds_moved_to_a_swimlane_and_to_the_end(c
     res = (project.user_stories.filter(id__in=updated_ids)
                                .values("id", "swimlane", "kanban_order", "status")
                                .order_by("kanban_order", "id"))
-    assert response.json() == list(res)
+    assert _strip_model(response.json()) == list(res)
 
     us1.refresh_from_db()
     us2.refresh_from_db()
@@ -508,7 +512,7 @@ def test_api_update_orders_in_bulk_succeeds_moved_to_a_swimlane_and_before_a_us(
     res = (project.user_stories.filter(id__in=updated_ids)
                                .values("id", "swimlane", "kanban_order", "status")
                                .order_by("kanban_order", "id"))
-    assert response.json() == list(res)
+    assert _strip_model(response.json()) == list(res)
 
     us1.refresh_from_db()
     us2.refresh_from_db()
@@ -967,7 +971,7 @@ def test_userstories_are_closed_after_moving_in_bulk_to_a_closed_status(send_req
     res = (project.user_stories.filter(id__in=updated_ids)
                                .values("id", "swimlane", "kanban_order", "status")
                                .order_by("kanban_order", "id"))
-    assert response.json() == list(res)
+    assert _strip_model(response.json()) == list(res)
 
 
     assert us1.is_closed and us1.status == status_closed
@@ -1016,7 +1020,7 @@ def test_userstories_are_opened_after_moving_in_bulk_to_a_opened_status(send_req
     res = (project.user_stories.filter(id__in=updated_ids)
                                .values("id", "swimlane", "kanban_order", "status")
                                .order_by("kanban_order", "id"))
-    assert response.json() == list(res)
+    assert _strip_model(response.json()) == list(res)
 
 
     assert us1.is_closed and us1.status == status_closed

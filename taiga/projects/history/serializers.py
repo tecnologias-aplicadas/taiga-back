@@ -47,3 +47,16 @@ class HistoryEntrySerializer(serializers.LightSerializer):
                 user["username"] = entry.owner.username
 
         return user
+
+class CommentReactionSerializer(serializers.LightSerializer):
+    id = MethodField()
+    comment_id = MethodField()
+    user_id = Field()
+    emoji = Field()
+    created_at = Field()
+
+    def get_id(self, instance):
+        return str(instance.id)
+
+    def get_comment_id(self, instance):
+        return str(instance.comment_id)

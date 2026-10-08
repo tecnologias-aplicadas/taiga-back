@@ -92,8 +92,8 @@ def test_get_private_project_by_slug(client):
     assert response.status_code == 200
 
 
-def test_create_project(client):
-    user = f.create_user()
+def test_create_project_as_superuser(client):  # TODO: Criar outro teste para testar sem o superuser
+    user = f.create_user(is_superuser=True)
     url = reverse("projects-list")
     data = {"name": "project name", "description": "project description"}
 
@@ -103,8 +103,9 @@ def test_create_project(client):
     assert response.status_code == 201
 
 
-def test_create_private_project_without_enough_private_projects_slots(client):
-    user = f.create_user(max_private_projects=0)
+# TODO: Criar outro teste para testar sem o superuser
+def test_create_private_project_without_enough_private_projects_slots_as_superuser(client):
+    user = f.create_user(max_private_projects=0, is_superuser=True)
     url = reverse("projects-list")
     data = {
         "name": "project name",
@@ -121,8 +122,8 @@ def test_create_private_project_without_enough_private_projects_slots(client):
     assert response["Taiga-Info-Project-Is-Private"] == "True"
 
 
-def test_create_public_project_without_enough_public_projects_slots(client):
-    user = f.create_user(max_public_projects=0)
+def test_create_public_project_without_enough_public_projects_slots_as_superuser(client): #TODO: Criar outro teste para testar sem o superuser
+    user = f.create_user(max_public_projects=0, is_superuser=True)
     url = reverse("projects-list")
     data = {
         "name": "project name",
@@ -175,8 +176,8 @@ def test_change_project_from_public_to_private_without_enough_private_projects_s
     assert response["Taiga-Info-Project-Is-Private"] == "True"
 
 
-def test_create_private_project_with_enough_private_projects_slots(client):
-    user = f.create_user(max_private_projects=1)
+def test_create_private_project_with_enough_private_projects_slots_as_superuser(client):
+    user = f.create_user(max_private_projects=1, is_superuser=True)
     url = reverse("projects-list")
     data = {
         "name": "project name",
@@ -190,8 +191,8 @@ def test_create_private_project_with_enough_private_projects_slots(client):
     assert response.status_code == 201
 
 
-def test_create_public_project_with_enough_public_projects_slots(client):
-    user = f.create_user(max_public_projects=1)
+def test_create_public_project_with_enough_public_projects_slots_as_superuser(client):
+    user = f.create_user(max_public_projects=1, is_superuser=True)
     url = reverse("projects-list")
     data = {
         "name": "project name",

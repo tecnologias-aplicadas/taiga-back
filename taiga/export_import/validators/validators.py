@@ -251,6 +251,15 @@ class MilestoneExportValidator(WatcheableObjectModelValidatorMixin):
     modified_date = serializers.DateTimeField(required=False)
     estimated_start = serializers.DateField(required=False)
     estimated_finish = serializers.DateField(required=False)
+    # Sprint importada sem objetivo recebe texto fixo (RN09ADQ).
+    goal = serializers.CharField(required=False,
+                                 default=milestones_models.OBJETIVO_IMPORTACAO)
+    # Resultado da sprint viaja no dump e é recriado como veio (RN11ADQ).
+    goal_achievement = serializers.ChoiceField(choices=milestones_models.GoalAchievement.choices,
+                                               required=False)
+    result = serializers.CharField(required=False)
+    result_date = serializers.DateTimeField(required=False)
+    result_by = UserRelatedField(required=False)
 
     def __init__(self, *args, **kwargs):
         project = kwargs.pop('project', None)
@@ -268,6 +277,19 @@ class MilestoneExportValidator(WatcheableObjectModelValidatorMixin):
             raise ValidationError(_("Duplicated name"))
 
         return attrs
+
+    def validate(self, attrs):
+        # Vazio vira nulo para não ferir a constraint do banco.
+        for field_name in ("goal_achievement", "result"):
+            if field_name in attrs and not attrs[field_name]:
+                attrs[field_name] = None
+
+        if attrs.get("goal_achievement") and not attrs.get("result"):
+            raise ValidationError({
+                "goal_achievement": [_("The goal achievement requires the sprint result")]
+            })
+
+        return super().validate(attrs)
 
     class Meta:
         model = milestones_models.Milestone

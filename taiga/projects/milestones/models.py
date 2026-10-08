@@ -21,6 +21,19 @@ import itertools
 import datetime
 
 
+# Textos fixos gravados como dado (pt-BR, não passam por tradução).
+# As migrations 0004 e 0005 copiam o literal: não importam deste módulo.
+OBJETIVO_LEGADO = "Objetivo descrito em documento separado, existente antes da release V2"
+RESULTADO_LEGADO = "Resultado descrito em documento separado, existente antes da release V2"
+OBJETIVO_IMPORTACAO = "Objetivo não informado na importação"
+
+
+class GoalAchievement(models.TextChoices):
+    ACHIEVED = "achieved", _("Achieved")
+    PARTIALLY_ACHIEVED = "partially_achieved", _("Partially achieved")
+    NOT_ACHIEVED = "not_achieved", _("Not achieved")
+
+
 class Milestone(WatchedModelMixin, models.Model):
     name = models.CharField(max_length=200, db_index=True, null=False, blank=False,
                             verbose_name=_("name"))
@@ -56,6 +69,21 @@ class Milestone(WatchedModelMixin, models.Model):
                                       verbose_name=_("disponibility"))
     order = models.PositiveSmallIntegerField(default=1, null=False, blank=False,
                                              verbose_name=_("order"))
+    goal = models.TextField(null=False, blank=False, verbose_name=_("goal"))
+    goal_achievement = models.CharField(max_length=20, choices=GoalAchievement.choices,
+                                        null=True, blank=True,
+                                        verbose_name=_("goal achievement"))
+    result = models.TextField(null=True, blank=True, verbose_name=_("result"))
+    result_date = models.DateTimeField(null=True, blank=True,
+                                       verbose_name=_("result date"))
+    result_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        related_name="milestone_results",
+        verbose_name=_("result registered by"),
+        on_delete=models.SET_NULL,
+    )
     _importing = None
     _total_closed_points_by_date = None
 
@@ -64,6 +92,12 @@ class Milestone(WatchedModelMixin, models.Model):
         verbose_name_plural = "milestones"
         ordering = ["project", "created_date"]
         unique_together = [("name", "project"), ("slug", "project")]
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(goal_achievement__isnull=True) | models.Q(result__isnull=False),
+                name="milestone_achievement_requires_result",
+            ),
+        ]
 
     def __str__(self):
         return self.name

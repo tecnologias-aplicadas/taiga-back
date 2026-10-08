@@ -16,7 +16,7 @@ from taiga.projects.references.models import recalc_reference_counter
 from taiga.projects.models import Project, ProjectTemplate, Points
 from taiga.projects.userstories.models import UserStory, RolePoints
 from taiga.projects.tasks.models import Task
-from taiga.projects.milestones.models import Milestone
+from taiga.projects.milestones.models import Milestone, OBJETIVO_IMPORTACAO
 from taiga.projects.epics.models import Epic, RelatedUserStory
 from taiga.projects.history.services import take_snapshot
 from taiga.timeline.rebuilder import rebuild_timeline
@@ -159,6 +159,7 @@ class JiraAgileImporter(JiraImporterCommon):
                     project=project,
                     estimated_start=start_date,
                     estimated_finish=end_date,
+                    goal=OBJETIVO_IMPORTACAO,
                 )
                 Milestone.objects.filter(id=milestone.id).update(
                     created_date=start_datetime or timezone.now(),

@@ -24,7 +24,7 @@ from .services import public_register
 from .services import make_auth_response_data
 from .services import get_auth_plugins
 from .throttling import LoginFailRateThrottle, RegisterSuccessRateThrottle
-
+from .services import verify_recaptcha
 
 def _validate_data(data:dict, *, cls):
     """
@@ -42,7 +42,9 @@ def _validate_data(data:dict, *, cls):
     return validator.object
 
 
-get_token = partial(_validate_data, cls=serializers.TokenObtainPairSerializer)
+# get_token = partial(_validate_data, cls=serializers.TokenObtainPairSerializer)
+get_ldap_token = partial(_validate_data, cls=serializers.TokenObtainLDAPSerializer)
+get_normal_token = partial(_validate_data, cls=serializers.TokenObtainNormalSerializer)
 refresh_token = partial(_validate_data, cls=serializers.TokenRefreshSerializer)
 verify_token = partial(_validate_data, cls=serializers.TokenVerifySerializer)
 parse_public_register_data = partial(_validate_data, cls=serializers.PublicRegisterSerializer)
@@ -64,25 +66,71 @@ class AuthViewSet(viewsets.ViewSet):
         )
 
     # Login view: /api/v1/auth
-    def create(self, request, **kwargs):
-        self.check_permissions(request, 'get_token', None)
-        auth_plugins = get_auth_plugins()
+    # def create(self, request, **kwargs):
+    #     self.check_permissions(request, 'get_token', None)
+    #     auth_plugins = get_auth_plugins()
+    #     # Verifique o reCAPTCHA
+    #     if settings.CAPCHA_USE:
+    #         recaptcha_response = request.DATA.get("g-recaptcha-response")
+    #         if not recaptcha_response or not verify_recaptcha(recaptcha_response):
+    #             raise exc.BadRequest(_("Invalid reCAPTCHA. Please try again."))
+        
+    #     login_type = request.DATA.get("type", "").lower()
 
-        login_type = request.DATA.get("type", "").lower()
+    #     if login_type == "normal":
+    #         # Default login process
+    #         data = get_token(request.DATA)
+    #     elif login_type in auth_plugins:
+    #         data = auth_plugins[login_type]['login_func'](request)
+    #     else:
+    #         raise exc.BadRequest(_("invalid login type"))
 
-        if login_type == "normal":
-            # Default login process
-            data = get_token(request.DATA)
-        elif login_type in auth_plugins:
-            data = auth_plugins[login_type]['login_func'](request)
-        else:
-            raise exc.BadRequest(_("invalid login type"))
+    #     # Processing invitation token
+    #     invitation_token = request.DATA.get("invitation_token", None)
+    #     if invitation_token:
+    #         accept_invitation_by_existing_user(invitation_token, data['id'])
 
-        # Processing invitation token
+    #     return response.Ok(data)
+
+    # Public config: /api/v1/auth/config
+    @list_route(methods=["GET"])
+    def config(self, request, **kwargs):
+        return response.Ok({"admin_team": settings.TAIGA_ADMIN_TEAM })
+
+    def _accept_invitation_if_any(self, request, data):
+        """
+        Processa o convite de projeto enviado no login, depois de a credencial ser
+        validada. Usado pelas duas rotas de login (corporativa e externa).
+
+        Falha no aceite derruba o login: token inexistente ou já aceito devolve 404
+        e usuário já membro do projeto devolve 400, sem devolver token de acesso.
+        """
         invitation_token = request.DATA.get("invitation_token", None)
         if invitation_token:
-            accept_invitation_by_existing_user(invitation_token, data['id'])
+            accept_invitation_by_existing_user(invitation_token, data["id"])
 
+    # Corporate login (LDAP): /api/v1/auth/corporate
+    @list_route(methods=["POST"])
+    def corporate(self, request, **kwargs):
+        self.check_permissions(request, 'get_token', None)
+        if settings.CAPCHA_USE:
+            recaptcha_response = request.DATA.get("g-recaptcha-response")
+            if not recaptcha_response or not verify_recaptcha(recaptcha_response):
+                raise exc.BadRequest({"code": "invalid_recaptcha"})
+        data = get_ldap_token(request.DATA)
+        self._accept_invitation_if_any(request, data)
+        return response.Ok(data)
+
+    # External login (normal): /api/v1/auth/external
+    @list_route(methods=["POST"])
+    def external(self, request, **kwargs):
+        self.check_permissions(request, 'get_token', None)
+        if settings.CAPCHA_USE:
+            recaptcha_response = request.DATA.get("g-recaptcha-response")
+            if not recaptcha_response or not verify_recaptcha(recaptcha_response):
+                raise exc.BadRequest({"code": "invalid_recaptcha"})
+        data = get_normal_token(request.DATA)
+        self._accept_invitation_if_any(request, data)
         return response.Ok(data)
 
     # Refresh token view: /api/v1/auth/refresh
@@ -105,7 +153,7 @@ class AuthViewSet(viewsets.ViewSet):
 
     def _public_register(self, request):
         if not settings.PUBLIC_REGISTER_ENABLED:
-            raise exc.BadRequest(_("Public registration is disabled."))
+            raise exc.BadRequest({"code": "public_register_disabled"})
 
         try:
             data = parse_public_register_data(request.DATA)
@@ -128,7 +176,7 @@ class AuthViewSet(viewsets.ViewSet):
     def register(self, request, **kwargs):
         accepted_terms = request.DATA.get("accepted_terms", None)
         if accepted_terms in (None, False):
-            raise exc.BadRequest(_("You must accept our terms of service and privacy policy"))
+            raise exc.BadRequest({"code": "terms_not_accepted"})
 
         self.check_permissions(request, 'register', None)
 
@@ -137,5 +185,5 @@ class AuthViewSet(viewsets.ViewSet):
             return self._public_register(request)
         elif type == "private":
             return self._private_register(request)
-        raise exc.BadRequest(_("invalid registration type"))
+        raise exc.BadRequest({"code": "invalid_registration_type"})
 

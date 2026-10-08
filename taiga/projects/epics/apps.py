@@ -26,9 +26,22 @@ def connect_epics_custom_attributes_signals():
                               dispatch_uid="create_custom_attribute_value_when_create_epic")
 
 
+def connect_related_userstories_signals():
+    from . import signals as handlers
+
+    # Ligar ou desligar história de épica avisa o canal de eventos como mudança da épica
+    signals.post_save.connect(handlers.emit_epic_change_when_related_userstory_changes,
+                              sender=apps.get_model("epics", "RelatedUserStory"),
+                              dispatch_uid="emit_epic_change_when_related_userstory_saved")
+    signals.post_delete.connect(handlers.emit_epic_change_when_related_userstory_changes,
+                                sender=apps.get_model("epics", "RelatedUserStory"),
+                                dispatch_uid="emit_epic_change_when_related_userstory_deleted")
+
+
 def connect_all_epics_signals():
     connect_epics_signals()
     connect_epics_custom_attributes_signals()
+    connect_related_userstories_signals()
 
 
 def disconnect_epics_signals():
@@ -41,14 +54,23 @@ def disconnect_epics_custom_attributes_signals():
                                  dispatch_uid="create_custom_attribute_value_when_create_epic")
 
 
+def disconnect_related_userstories_signals():
+    signals.post_save.disconnect(sender=apps.get_model("epics", "RelatedUserStory"),
+                                 dispatch_uid="emit_epic_change_when_related_userstory_saved")
+    signals.post_delete.disconnect(sender=apps.get_model("epics", "RelatedUserStory"),
+                                   dispatch_uid="emit_epic_change_when_related_userstory_deleted")
+
+
 def disconnect_all_epics_signals():
     disconnect_epics_signals()
     disconnect_epics_custom_attributes_signals()
+    disconnect_related_userstories_signals()
 
 
 class EpicsAppConfig(AppConfig):
     name = "taiga.projects.epics"
     verbose_name = "Epics"
+    watched_types = ["epics.epic", ]
 
     def ready(self):
         connect_all_epics_signals()

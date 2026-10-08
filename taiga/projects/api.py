@@ -7,7 +7,6 @@
 
 import uuid
 import functools
-from easy_thumbnails.source_generators import pil_image
 from dateutil.relativedelta import relativedelta
 
 from django.apps import apps
@@ -28,6 +27,7 @@ from taiga.base.api.utils import get_object_or_error
 from taiga.base.api.viewsets import ViewSet
 from taiga.base.decorators import list_route
 from taiga.base.decorators import detail_route
+from taiga.base.utils.images import validate_image_file
 from taiga.base.utils.slug import slugify_uniquely
 
 from taiga.permissions import services as permissions_services
@@ -170,10 +170,7 @@ class ProjectViewSet(LikedResourceMixin, HistoryResourceMixin,
         logo = request.FILES.get('logo', None)
         if not logo:
             raise exc.WrongArguments(_("Incomplete arguments"))
-        try:
-            pil_image(logo)
-        except Exception:
-            raise exc.WrongArguments(_("Invalid image format"))
+        validate_image_file(logo)
 
         self.pre_conditions_on_save(self.object)
 
@@ -585,6 +582,19 @@ class EpicStatusViewSet(MoveOnDestroyMixin, BlockedByProjectMixin,
     move_on_destroy_related_class = Epic
     move_on_destroy_related_field = "status"
     move_on_destroy_project_default_field = "default_epic_status"
+
+    def pre_conditions_on_save(self, obj):
+        super().pre_conditions_on_save(obj)
+
+        if obj.pk and 'is_closed' in self.request.DATA and not obj.is_closed:
+            try:
+                original = self.model.objects.get(pk=obj.pk)
+                if original.is_closed and Epic.objects.filter(status=obj).exists():
+                    raise exc.WrongArguments(
+                        {"_error_code": "IS_CLOSED_HAS_EPICS"}
+                    )
+            except self.model.DoesNotExist:
+                pass
 
     def create(self, request, *args, **kwargs):
         project_id = request.DATA.get("project", 0)

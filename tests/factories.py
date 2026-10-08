@@ -8,7 +8,7 @@
 import uuid
 import threading
 from datetime import date, timedelta
-
+from decimal import Decimal
 from django.conf import settings
 
 from .utils import DUMMY_BMP_DATA
@@ -16,8 +16,6 @@ from .utils import DUMMY_BMP_DATA
 import factory
 
 from taiga.permissions.choices import MEMBERS_PERMISSIONS
-
-
 
 class Factory(factory.django.DjangoModelFactory):
     class Meta:
@@ -76,6 +74,18 @@ class ProjectFactory(Factory):
     description = "Project description"
     owner = factory.SubFactory("tests.factories.UserFactory")
     creation_template = factory.SubFactory("tests.factories.ProjectTemplateFactory")
+
+
+class SlideFactory(Factory):
+    class Meta:
+        model = "news.Slide"
+        strategy = factory.CREATE_STRATEGY
+
+    title = factory.Sequence(lambda n: "Slide {}".format(n))
+    description = "Slide description"
+    image = factory.django.FileField(data=DUMMY_BMP_DATA, filename="slide.bmp")
+    order = factory.Sequence(lambda n: n)
+    is_active = True
 
 
 class ProjectModulesConfigFactory(Factory):
@@ -185,15 +195,22 @@ class WikiAttachmentFactory(Factory):
         model = "attachments.Attachment"
         strategy = factory.CREATE_STRATEGY
 
+from django.contrib.auth import get_user_model
+User = get_user_model()
 
 class UserFactory(Factory):
     class Meta:
-        model = settings.AUTH_USER_MODEL
+        model = User
         strategy = factory.CREATE_STRATEGY
 
     username = factory.Sequence(lambda n: "user{}".format(n))
     email = factory.LazyAttribute(lambda obj: '%s@email.com' % obj.username)
-    password = factory.PostGeneration(lambda obj, *args, **kwargs: obj.set_password(obj.username))
+
+    @factory.post_generation
+    def password(obj: User, create, extracted, **kwargs):
+        obj.set_password(extracted or obj.username)
+        obj.save()
+
     accepted_terms = True
     read_new_terms = True
 
@@ -264,6 +281,8 @@ class EpicFactory(Factory):
     subject = factory.Sequence(lambda n: "Epic {}".format(n))
     description = factory.Sequence(lambda n: "Epic {} description".format(n))
     status = factory.SubFactory("tests.factories.EpicStatusFactory")
+    completion_percent_progress = factory.LazyFunction(lambda: Decimal("0.00"))
+    completion_percent_done = factory.LazyFunction(lambda: Decimal("0.00"))
 
 
 class RelatedUserStory(Factory):
@@ -285,6 +304,7 @@ class MilestoneFactory(Factory):
     project = factory.SubFactory("tests.factories.ProjectFactory")
     estimated_start = factory.LazyAttribute(lambda o: date.today())
     estimated_finish = factory.LazyAttribute(lambda o: o.estimated_start + timedelta(days=7))
+    goal = factory.Sequence(lambda n: "Objetivo da sprint {}".format(n))
 
 
 class UserStoryFactory(Factory):
@@ -302,6 +322,8 @@ class UserStoryFactory(Factory):
     tags = factory.Faker("words")
     due_date = factory.LazyAttribute(lambda o: date.today() + timedelta(days=7))
     due_date_reason = factory.Faker("words")
+    completion_percent_progress = factory.LazyFunction(lambda: Decimal("0.00"))
+    completion_percent_done = factory.LazyFunction(lambda: Decimal("0.00"))
 
     @factory.post_generation
     def assigned_users(self, create, users_list, **kwargs):
@@ -329,7 +351,8 @@ class TaskFactory(Factory):
     tags = factory.Faker("words")
     due_date = factory.LazyAttribute(lambda o: date.today() + timedelta(days=7))
     due_date_reason = factory.Faker("words")
-
+    completion_percent_progress = factory.LazyFunction(lambda: Decimal("0.00"))
+    completion_percent_done = factory.LazyFunction(lambda: Decimal("0.00"))
 
 class IssueFactory(Factory):
     class Meta:
@@ -583,13 +606,37 @@ class AttachmentFactory(Factory):
     attached_file = factory.django.FileField(data=b"File contents")
     name = factory.Sequence(lambda n: "Attachment {}".format(n))
 
-
-class HistoryEntryFactory(Factory):
+class HistoryEntryFactory(factory.django.DjangoModelFactory):
     class Meta:
         model = "history.HistoryEntry"
         strategy = factory.CREATE_STRATEGY
 
     type = 1
+    project = factory.SubFactory("tests.factories.ProjectFactory")
+    user = factory.SubFactory("tests.factories.UserFactory")
+
+    @factory.lazy_attribute
+    def key(self):
+        issue = IssueFactory.create(project=self.project)
+        return f"issues.Issue:{issue.pk}"
+    diff = factory.LazyFunction(lambda: {"description": ["old", "new"]})
+    values = factory.LazyFunction(lambda: {"description": {"old": "old", "new": "new"}})
+
+class CommentReactionFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = "history.CommentReaction"
+
+    user = factory.SubFactory("tests.factories.UserFactory")
+    comment = factory.SubFactory("tests.factories.CommentReactionFactory")
+    emoji = "👍"
+
+class CommentFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = "history.HistoryEntry"
+
+    user = factory.SubFactory("tests.factories.UserFactory")
+    content_object = factory.SubFactory("tests.factories.IssueFactory")
+    version = 1
 
 
 class ApplicationFactory(Factory):
@@ -605,6 +652,42 @@ class ApplicationTokenFactory(Factory):
 
     application = factory.SubFactory("tests.factories.ApplicationFactory")
     user = factory.SubFactory("tests.factories.UserFactory")
+
+
+# class CardRelationFactory(factory.django.DjangoModelFactory):
+#     class Meta:
+#         model = "card_relations.CardRelation"
+
+#     project = factory.SubFactory("tests.factories.ProjectFactory")
+#     card_ref = factory.Sequence(lambda n: n)
+#     dependent_card_ref = factory.Sequence(lambda n: n + 1000)
+#     status = factory.Iterator(["blocks", "relates_to", "duplicates"])
+#     is_active = True
+
+#     @factory.post_generation
+#     def set_cards_project(self, obj, create, extracted, **kwargs):
+#         if not create:
+#             return
+        
+#         if obj.card_from.project_id != obj.project_id:
+#             obj.card_from.project = obj.project
+#             obj.card_from.save()
+            
+#         if obj.card_to.project_id != obj.project_id:
+#             obj.card_to.project = obj.project
+#             obj.card_to.save()
+
+# class CardFactory(Factory):
+#     class Meta:
+#         model = "card_relations.CardRelation"
+#         strategy = factory.CREATE_STRATEGY
+
+#     project = factory.SubFactory("tests.factories.ProjectFactory")
+#     card_ref = factory.Sequence(lambda n: n)
+#     status = "RE"
+#     description = factory.Faker("sentence")
+#     dependent_card_ref = factory.Sequence(lambda n: n + 1000)
+#     is_active = True
 
 def create_issue(**kwargs):
     "Create an issue and along with its dependencies."

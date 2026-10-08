@@ -8,8 +8,11 @@
 import csv
 import io
 from collections import OrderedDict
+from datetime import date
 from operator import itemgetter
 from contextlib import closing
+
+from dateutil.relativedelta import relativedelta
 
 from django.db import connection
 from django.utils.translation import gettext as _
@@ -17,6 +20,8 @@ from django.utils.translation import gettext as _
 from taiga.base.utils import db, text
 from taiga.projects.epics.apps import connect_epics_signals
 from taiga.projects.epics.apps import disconnect_epics_signals
+from taiga.projects.epics.apps import connect_related_userstories_signals
+from taiga.projects.epics.apps import disconnect_related_userstories_signals
 from taiga.projects.services import apply_order_updates
 from taiga.projects.userstories.apps import connect_userstories_signals
 from taiga.projects.userstories.apps import disconnect_userstories_signals
@@ -105,6 +110,8 @@ def create_related_userstories_in_bulk(bulk_data, epic, **additional_fields):
             user_story.swimlane = project.default_swimlane
 
     disconnect_userstories_signals()
+    # Em lote, um só evento da épica no fim, em vez de um por ligação
+    disconnect_related_userstories_signals()
 
     try:
         db.save_in_bulk(userstories)
@@ -120,6 +127,10 @@ def create_related_userstories_in_bulk(bulk_data, epic, **additional_fields):
         project.update_role_points(user_stories=userstories)
     finally:
         connect_userstories_signals()
+        connect_related_userstories_signals()
+
+    if related_userstories:
+        events.emit_event_for_model(epic, type="change")
 
     return related_userstories
 
@@ -415,6 +426,165 @@ def _get_epics_tags(project, queryset):
             "count": count,
         })
     return sorted(result, key=itemgetter("name"))
+
+
+def get_epics_pd_history(project):
+    """
+    Returns weighted monthly progress of epics for a project.
+
+    For each month:
+    - If a snapshot exists (EpicMonthlySnapshot), use its frozen values.
+    - Otherwise (current/future months or before snapshots were set up), use live values.
+
+    Scheduled epics (schedulable=True) are weighted by percentage_impact.
+    Unscheduled epics use a simple average.
+
+    Response structure:
+      - total_scheduled_impact: sum of percentage_impact for schedulable=True epics
+      - total_unscheduled: count of schedulable=False epics
+      - monthly: list of {month, scheduled_weighted_pct, unscheduled_avg_pct}
+    """
+    from taiga.projects.epics.models import EpicMonthlySnapshot
+    from collections import defaultdict
+
+    scheduled_epics = list(
+        project.epics.filter(schedulable=True).select_related("status")
+        .values("id", "completion_percent_done", "percentage_impact", "status__is_closed")
+    )
+    unscheduled_epics = list(
+        project.epics.filter(schedulable=False).select_related("status")
+        .values("id", "completion_percent_done", "percentage_impact", "status__is_closed")
+    )
+
+    total_scheduled_impact = sum(e["percentage_impact"] for e in scheduled_epics)
+    total_unscheduled_impact = sum(e["percentage_impact"] for e in unscheduled_epics)
+    total_impact = total_scheduled_impact + total_unscheduled_impact
+    total_scheduled = len(scheduled_epics)
+    total_unscheduled = len(unscheduled_epics)
+
+
+    # Load all existing snapshots for this project
+    snapshots = EpicMonthlySnapshot.objects.filter(
+        epic__project=project
+    ).values("epic_id", "year_month", "completion_percent_done", "percentage_impact", "schedulable", "is_closed")
+
+    snap_by_month = defaultdict(list)
+    for s in snapshots:
+        snap_by_month[s["year_month"]].append(s)
+
+    # If live epics have no schedulable set, fall back to the most recent snapshot
+    if snap_by_month and (total_scheduled == 0 and total_unscheduled == 0):
+        latest_snaps = snap_by_month[max(snap_by_month.keys())]
+        total_scheduled = len([s for s in latest_snaps if s["schedulable"] is True])
+        total_unscheduled = len([s for s in latest_snaps if s["schedulable"] is False])
+        total_scheduled_impact = sum(s["percentage_impact"] for s in latest_snaps if s["schedulable"] is True)
+        total_unscheduled_impact = sum(s["percentage_impact"] for s in latest_snaps if s["schedulable"] is False)
+        total_impact = total_scheduled_impact + total_unscheduled_impact
+
+    # Epic ref lookup for human-readable TMP descriptions
+    epic_refs = {e["id"]: e["ref"] for e in project.epics.values("id", "ref")}
+
+    # Build month range
+    start = project.start_date
+    today = date.today()
+    # When project is finished, chart ends at end_date; otherwise extends to today if past expected end
+    if project.end_date:
+        end = project.end_date
+    else:
+        end = max(project.expected_end_date, today)
+
+    months = []
+    current = date(start.year, start.month, 1)
+    end_month = date(end.year, end.month, 1)
+    while current <= end_month:
+        months.append(current)
+        current += relativedelta(months=1)
+
+    monthly = []
+    # TMP detection: compare scope signature (who is schedulable and at what impact)
+    # A TMP occurs when the composition changes, even if the total stays the same
+    prev_scope_sig = None
+
+    for month in months:
+        ym = month.strftime("%Y-%m")
+
+        if ym in snap_by_month:
+            snaps = snap_by_month[ym]
+            sched_snaps   = [s for s in snaps if s["schedulable"] is True]
+            unsched_snaps = [s for s in snaps if s["schedulable"] is False]
+
+            sched_impact_done = round(
+                sum(s["completion_percent_done"] * s["percentage_impact"] / 100 for s in sched_snaps), 2
+            )
+            unsched_impact_done = round(
+                sum(s["completion_percent_done"] * s["percentage_impact"] / 100 for s in unsched_snaps), 2
+            )
+            sched_done   = sum(1 for s in sched_snaps if s["is_closed"])
+            unsched_done = sum(1 for s in unsched_snaps if s["is_closed"])
+
+            # TMP detection: scope signature = only schedulable=True epics and their impacts.
+            # Changes in non-schedulable epics do NOT trigger TMP.
+            cur_scope_sig = frozenset(
+                (s["epic_id"], s["percentage_impact"])
+                for s in snaps
+                if s["schedulable"] is True
+            )
+
+            if prev_scope_sig is not None and cur_scope_sig != prev_scope_sig:
+                is_tmp = True
+
+                # Build dicts {epic_id: impact} — scope_sig already contains only schedulable=True
+                prev_sched_map = {s[0]: s[1] for s in prev_scope_sig}
+                cur_sched_map  = {s[0]: s[1] for s in cur_scope_sig}
+
+                tmp_changes = []
+                # Epics that changed impact (stayed schedulable but impact changed)
+                for epic_id, cur_impact in cur_sched_map.items():
+                    if epic_id in prev_sched_map and prev_sched_map[epic_id] != cur_impact:
+                        ref = epic_refs.get(epic_id, epic_id)
+                        tmp_changes.append({"type": "changed", "ref": ref, "from": prev_sched_map[epic_id], "to": cur_impact})
+                # New schedulable epics
+                for epic_id in cur_sched_map:
+                    if epic_id not in prev_sched_map:
+                        ref = epic_refs.get(epic_id, epic_id)
+                        tmp_changes.append({"type": "added", "ref": ref})
+                # Epics that left schedulable scope
+                for epic_id in prev_sched_map:
+                    if epic_id not in cur_sched_map:
+                        ref = epic_refs.get(epic_id, epic_id)
+                        tmp_changes.append({"type": "removed", "ref": ref})
+            else:
+                is_tmp      = False
+                tmp_changes = []
+            prev_scope_sig = cur_scope_sig
+        else:
+            sched_impact_done   = 0
+            unsched_impact_done = 0
+            sched_done          = 0
+            unsched_done        = 0
+            is_tmp      = False
+            tmp_changes = []
+
+        monthly.append({
+            "month":        ym,
+            "has_snapshot": ym in snap_by_month,
+            "scheduled_impact_done":   sched_impact_done,
+            "unscheduled_impact_done": unsched_impact_done,
+            "scheduled_done":   sched_done,
+            "unscheduled_done": unsched_done,
+            "is_tmp":       is_tmp,
+            "tmp_changes":  tmp_changes,
+        })
+
+    return {
+        "total_impact": total_impact,
+        "total_scheduled_impact": total_scheduled_impact,
+        "total_unscheduled_impact": total_unscheduled_impact,
+        "total_scheduled": total_scheduled,
+        "total_unscheduled": total_unscheduled,
+        "expected_end_date": project.expected_end_date.strftime("%Y-%m") if project.expected_end_date else None,
+        "monthly": monthly,
+    }
 
 
 def get_epics_filters_data(project, querysets):

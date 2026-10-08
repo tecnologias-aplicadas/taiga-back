@@ -18,7 +18,7 @@ from taiga.projects.notifications.mixins import EditableWatchedResourceSerialize
 from taiga.projects.notifications.validators import WatchersValidator
 from taiga.projects.tagging.fields import TagsAndTagsColorsField
 from taiga.projects.userstories.models import UserStory
-from taiga.projects.validators import ProjectExistsValidator
+from taiga.projects.validators import ProjectExistsValidator, BlockedStatusPreventsClosedStatusMixin
 
 from . import models
 
@@ -33,7 +33,7 @@ class TaskValidator(AssignedToValidator, WatchersValidator, EditableWatchedResou
         read_only_fields = ('id', 'ref', 'created_date', 'modified_date', 'owner')
 
 
-class TasksBulkValidator(ProjectExistsValidator, validators.Validator):
+class TasksBulkValidator(ProjectExistsValidator, validators.Validator, BlockedStatusPreventsClosedStatusMixin):
     project_id = serializers.IntegerField()
     milestone_id = serializers.IntegerField()
     status_id = serializers.IntegerField(required=False)
@@ -78,12 +78,12 @@ class TasksBulkValidator(ProjectExistsValidator, validators.Validator):
 
 # Order bulk validators
 
-class _TaskOrderBulkValidator(validators.Validator):
+class _TaskOrderBulkValidator(validators.Validator, BlockedStatusPreventsClosedStatusMixin):
     task_id = serializers.IntegerField()
     order = serializers.IntegerField()
 
 
-class UpdateTasksOrderBulkValidator(ProjectExistsValidator, validators.Validator):
+class UpdateTasksOrderBulkValidator(ProjectExistsValidator, validators.Validator, BlockedStatusPreventsClosedStatusMixin):
     project_id = serializers.IntegerField()
     status_id = serializers.IntegerField(required=False)
     us_id = serializers.IntegerField(required=False)
@@ -146,12 +146,12 @@ class UpdateTasksOrderBulkValidator(ProjectExistsValidator, validators.Validator
 
 # Milestone bulk validators
 
-class _TaskMilestoneBulkValidator(validators.Validator):
+class _TaskMilestoneBulkValidator(validators.Validator, BlockedStatusPreventsClosedStatusMixin):
     task_id = serializers.IntegerField()
     order = serializers.IntegerField()
 
 
-class UpdateMilestoneBulkValidator(ProjectExistsValidator, validators.Validator):
+class UpdateMilestoneBulkValidator(ProjectExistsValidator, validators.Validator, BlockedStatusPreventsClosedStatusMixin):
     project_id = serializers.IntegerField()
     milestone_id = serializers.IntegerField()
     bulk_tasks = _TaskMilestoneBulkValidator(many=True)

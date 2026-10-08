@@ -10,7 +10,9 @@ from taiga.base import throttling
 
 class LoginFailRateThrottle(throttling.GlobalThrottlingMixin, throttling.ThrottleByActionMixin, throttling.SimpleRateThrottle):
     scope = "login-fail"
-    throttled_actions = ["create", "refresh", "verify"]
+    # "corporate" (LDAP) e "external" (senha local) são as rotas de login atuais;
+    # "create" é a rota herdada, mantida na lista por compatibilidade.
+    throttled_actions = ["create", "corporate", "external", "refresh", "verify"]
 
     def throttle_success(self, request, view):
         return True

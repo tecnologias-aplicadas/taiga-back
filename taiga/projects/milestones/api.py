@@ -6,7 +6,10 @@
 # Copyright (c) 2021-present Kaleidos INC
 
 from django.apps import apps
+from django.db import transaction
+from django.utils.translation import gettext as _
 
+from taiga.base import exceptions as exc
 from taiga.base import filters
 from taiga.base import response
 from taiga.base.decorators import detail_route
@@ -82,9 +85,13 @@ class MilestoneViewSet(HistoryResourceMixin, WatchedResourceMixin,
         if project:
             opened_milestones = project.milestones.filter(closed=False).count()
             closed_milestones = project.milestones.filter(closed=True).count()
+            closed_milestones_without_result = project.milestones.filter(
+                closed=True, result__isnull=True).count()
 
             self.headers["Taiga-Info-Total-Opened-Milestones"] = opened_milestones
             self.headers["Taiga-Info-Total-Closed-Milestones"] = closed_milestones
+            self.headers["Taiga-Info-Total-Closed-Milestones-Without-Result"] = \
+                closed_milestones_without_result
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -199,6 +206,69 @@ class MilestoneViewSet(HistoryResourceMixin, WatchedResourceMixin,
             services.snapshot_issues_in_bulk(data["bulk_issues"], request.user)
 
         return response.NoContent()
+
+    @detail_route(methods=["POST"])
+    def close_with_result(self, request, pk=None, **kwargs):
+        """
+        Registra o resultado do objetivo da sprint, move os itens não finalizados
+        para outra sprint aberta e fecha a sprint pela regra atual, tudo ou nada
+        (RN04ADQ, RN05ADQ, RN06ADQ, RN08ADQ).
+        """
+        milestone = get_object_or_error(models.Milestone, request.user, pk=pk)
+
+        self.check_permissions(request, "close_with_result", milestone)
+
+        validator = validators.CloseWithResultValidator(data=request.DATA,
+                                                        context={"milestone": milestone})
+        if not validator.is_valid():
+            return response.BadRequest(validator.errors)
+
+        data = validator.data
+
+        with transaction.atomic():
+            if milestone.result is not None:
+                raise exc.BadRequest(_("The sprint result has already been registered"))
+
+            if not services.milestone_has_closed_items(milestone):
+                raise exc.BadRequest(_("The sprint has no finished activity, so it cannot be closed"))
+
+            bulk_stories, bulk_tasks, bulk_issues = services.get_unfinished_milestone_items(milestone)
+            if bulk_stories or bulk_tasks or bulk_issues:
+                if data.get("milestone_id") is None:
+                    raise exc.BadRequest({
+                        "milestone_id": [_("A destination sprint is required for the unfinished items")]
+                    })
+
+                destination = get_object_or_error(models.Milestone, request.user,
+                                                  pk=data["milestone_id"])
+
+                if bulk_stories:
+                    self.check_permissions(request, "move_uss_to_sprint", milestone.project)
+                    services.update_userstories_milestone_in_bulk(bulk_stories, destination)
+                    services.snapshot_userstories_in_bulk(bulk_stories, request.user)
+
+                if bulk_tasks:
+                    self.check_permissions(request, "move_tasks_to_sprint", milestone.project)
+                    services.update_tasks_milestone_in_bulk(bulk_tasks, destination)
+                    services.snapshot_tasks_in_bulk(bulk_tasks, request.user)
+
+                if bulk_issues:
+                    self.check_permissions(request, "move_issues_to_sprint", milestone.project)
+                    services.update_issues_milestone_in_bulk(bulk_issues, destination)
+                    services.snapshot_issues_in_bulk(bulk_issues, request.user)
+
+            milestone = models.Milestone.objects.get(pk=milestone.pk)
+            if not services.calculate_milestone_is_closed(milestone):
+                raise exc.BadRequest(_("The sprint could not be closed, so the result was not registered"))
+            services.close_milestone(milestone)
+
+            if not services.register_milestone_result(milestone, data["goal_achievement"],
+                                                      data["result"].strip(), request.user):
+                raise exc.BadRequest(_("The sprint result has already been registered"))
+
+        milestone = self.get_queryset().get(pk=milestone.pk)
+        serializer = self.get_serializer(milestone)
+        return response.Ok(serializer.data)
 
 
 class MilestoneWatchersViewSet(WatchersViewSetMixin, ModelListViewSet):

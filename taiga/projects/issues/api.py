@@ -6,6 +6,7 @@
 # Copyright (c) 2021-present Kaleidos INC
 
 #
+from django.db.models import Q
 from django.utils.translation import gettext as _
 from django.http import HttpResponse
 
@@ -28,6 +29,8 @@ from taiga.projects.notifications.mixins import WatchersViewSetMixin
 from taiga.projects.occ import OCCResourceMixin
 from taiga.projects.tagging.api import TaggedResourceMixin
 from taiga.projects.votes.mixins.viewsets import VotedResourceMixin, VotersViewSetMixin
+from taiga.projects.card_relations.models import CardRelation
+from taiga.projects.card_relations.choices import CardType
 
 from .utils import attach_extra_info
 
@@ -53,6 +56,7 @@ class IssueViewSet(AssignedToSignalMixin, OCCResourceMixin, VotedResourceMixin,
                        filters.IssueTypesFilter,
                        filters.SeveritiesFilter,
                        filters.PrioritiesFilter,
+                       filters.MilestoneFilter,
                        filters.TagsFilter,
                        filters.WatchersFilter,
                        filters.QFilter,
@@ -75,7 +79,8 @@ class IssueViewSet(AssignedToSignalMixin, OCCResourceMixin, VotedResourceMixin,
                        "assigned_to",
                        "subject",
                        "total_voters",
-                       "ref")
+                       "ref",
+                       "milestone")
 
     def get_serializer_class(self, *args, **kwargs):
         if self.action in ["retrieve", "by_ref"]:
@@ -179,6 +184,15 @@ class IssueViewSet(AssignedToSignalMixin, OCCResourceMixin, VotedResourceMixin,
 
         super().pre_conditions_on_save(obj)
 
+    def pre_delete(self, obj):
+        if CardRelation.objects.filter(
+            Q(source_type=CardType.ISSUE, source_id=obj.id) |
+            Q(target_type=CardType.ISSUE, target_id=obj.id),
+            is_active=True
+        ).exists():
+            raise exc.BadRequest({"code": "has_active_card_relations"})
+        super().pre_delete(obj)
+
     @list_route(methods=["GET"])
     def filters_data(self, request, *args, **kwargs):
         project_id = request.QUERY_PARAMS.get("project", None)
@@ -193,6 +207,7 @@ class IssueViewSet(AssignedToSignalMixin, OCCResourceMixin, VotedResourceMixin,
         severities_filter_backends = (f for f in filter_backends if f != filters.SeveritiesFilter)
         roles_filter_backends = (f for f in filter_backends if f != filters.RoleFilter)
         tags_filter_backends = (f for f in filter_backends if f != filters.TagsFilter)
+        milestones_filter_backends = (f for f in filter_backends if f != filters.MilestoneFilter)
 
         queryset = self.get_queryset()
         querysets = {
@@ -204,6 +219,7 @@ class IssueViewSet(AssignedToSignalMixin, OCCResourceMixin, VotedResourceMixin,
             "severities": self.filter_queryset(queryset, filter_backends=severities_filter_backends),
             "tags": self.filter_queryset(queryset, filter_backends=tags_filter_backends),
             "roles": self.filter_queryset(queryset, filter_backends=roles_filter_backends),
+            "milestones": self.filter_queryset(queryset, filter_backends=milestones_filter_backends),
         }
         return response.Ok(services.get_issues_filters_data(project, querysets))
 

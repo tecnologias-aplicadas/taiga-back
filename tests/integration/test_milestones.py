@@ -75,6 +75,59 @@ def test_list_milestones_taiga_info_headers(client):
     assert response2["taiga-info-total-opened-milestones"] == "1"
 
 
+def test_list_milestones_taiga_info_header_closed_without_result(client):
+    user = f.UserFactory.create()
+    project = f.ProjectFactory.create(owner=user)
+    role = f.RoleFactory.create(project=project)
+    f.MembershipFactory.create(project=project, user=user, role=role, is_admin=True)
+
+    f.MilestoneFactory.create(project=project, owner=user, closed=False)
+    f.MilestoneFactory.create(project=project, owner=user, closed=True,
+                              result="Objetivo alcançado", result_by=user,
+                              result_date=timezone.now())
+    f.MilestoneFactory.create(project=project, owner=user, closed=True)
+    f.MilestoneFactory.create(project=project, owner=user, closed=True)
+    # sprint fechada sem resultado de outro projeto: não conta
+    f.MilestoneFactory.create(owner=user, closed=True)
+
+    url = reverse("milestones-list")
+
+    client.login(user)
+    response = client.json.get(url, {"project": project.id})
+
+    assert response.status_code == 200
+    assert "taiga-info-total-closed-milestones-without-result" in response["access-control-expose-headers"]
+    assert response.has_header("Taiga-Info-Total-Closed-Milestones-Without-Result") == True
+    assert response["taiga-info-total-opened-milestones"] == "1"
+    assert response["taiga-info-total-closed-milestones"] == "3"
+    assert response["taiga-info-total-closed-milestones-without-result"] == "2"
+
+
+def test_list_milestones_taiga_info_header_closed_without_result_is_zero(client):
+    user = f.UserFactory.create()
+    project = f.ProjectFactory.create(owner=user)
+    role = f.RoleFactory.create(project=project)
+    f.MembershipFactory.create(project=project, user=user, role=role, is_admin=True)
+
+    f.MilestoneFactory.create(project=project, owner=user, closed=False)
+    f.MilestoneFactory.create(project=project, owner=user, closed=True,
+                              result="Objetivo alcançado", result_by=user,
+                              result_date=timezone.now())
+
+    url = reverse("milestones-list")
+
+    client.login(user)
+    response_without_project = client.json.get(url)
+    response = client.json.get(url, {"project": project.id})
+
+    assert response_without_project.status_code == 200
+    assert response_without_project.has_header("Taiga-Info-Total-Closed-Milestones-Without-Result") == False
+
+    assert response.status_code == 200
+    assert response["taiga-info-total-closed-milestones"] == "1"
+    assert response["taiga-info-total-closed-milestones-without-result"] == "0"
+
+
 def test_api_filter_by_created_date__lte(client):
     user = f.UserFactory.create()
     project = f.ProjectFactory.create(owner=user)

@@ -14,7 +14,7 @@ from taiga.projects.models import Project, ProjectTemplate
 from taiga.projects.references.models import recalc_reference_counter
 from taiga.projects.userstories.models import UserStory
 from taiga.projects.issues.models import Issue
-from taiga.projects.milestones.models import Milestone
+from taiga.projects.milestones.models import Milestone, OBJETIVO_IMPORTACAO
 from taiga.projects.history.services import take_snapshot
 from taiga.projects.history.services import (make_diff_from_dicts,
                                              make_diff_values,
@@ -209,6 +209,7 @@ class GithubImporter:
                 project=project,
                 estimated_start=milestone['created_at'][:10],
                 estimated_finish=milestone['due_on'][:10] if milestone['due_on'] else datetime.date(datetime.MAXYEAR, 12, 31),
+                goal=OBJETIVO_IMPORTACAO,
             )
             Milestone.objects.filter(id=taiga_milestone.id).update(
                 created_date=milestone['created_at'],

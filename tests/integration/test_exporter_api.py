@@ -5,6 +5,7 @@
 #
 # Copyright (c) 2021-present Kaleidos INC
 
+import io
 import pytest
 
 from unittest import mock
@@ -13,6 +14,7 @@ from django.urls import reverse
 
 from .. import factories as f
 from taiga.base.utils import json
+from taiga.export_import.services import render_project
 
 
 pytestmark = pytest.mark.django_db
@@ -118,3 +120,19 @@ def test_valid_project_with_throttling(client, settings):
     assert response.status_code == 200
     response = client.get(url, content_type="application/json")
     assert response.status_code == 429
+
+
+def test_project_export_includes_task_status_completion_percent():
+    user = f.UserFactory.create()
+    project = f.ProjectFactory.create(owner=user)
+    f.MembershipFactory(project=project, user=user, is_admin=True)
+    f.TaskStatusFactory.create(project=project, name="A Fazer", completion_percent=30, is_closed=False)
+    f.TaskStatusFactory.create(project=project, name="Em Progresso", completion_percent=70, is_closed=False)
+    f.TaskStatusFactory.create(project=project, name="Concluída", completion_percent=100, is_closed=True)
+
+    outfile = io.BytesIO()
+    render_project(project, outfile)
+    dump = json.loads(outfile.getvalue().decode())
+
+    exported = {s["name"]: s["completion_percent"] for s in dump["task_statuses"]}
+    assert exported == {"A Fazer": 30, "Em Progresso": 70, "Concluída": 100}

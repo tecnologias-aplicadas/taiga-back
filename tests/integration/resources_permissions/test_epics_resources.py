@@ -284,6 +284,7 @@ def test_epic_put_update(client, data):
         epic_data = EpicSerializer(data.public_epic).data
         epic_data["subject"] = "test"
         epic_data = json.dumps(epic_data)
+
         results = helper_test_http_method(client, 'put', public_url, epic_data, users)
         assert results == [401, 403, 403, 200, 200]
 

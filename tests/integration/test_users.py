@@ -105,8 +105,9 @@ def test_update_user_with_same_email(client):
     client.login(user)
     response = client.patch(url, json.dumps(data), content_type="application/json")
 
-    assert response.status_code == 400
-    assert response.data['_error_message'] == 'Duplicated email'
+    # email não é editável via PATCH — retorna 403
+    assert response.status_code == 403
+    assert response.data['code'] == 'fields_not_editable'
 
     user.refresh_from_db()
     assert user.email == "same@email.com"
@@ -121,8 +122,9 @@ def test_update_user_with_duplicated_email(client):
     client.login(user)
     response = client.patch(url, json.dumps(data), content_type="application/json")
 
-    assert response.status_code == 400
-    assert response.data['_error_message'] == 'Duplicated email'
+    # email não é editável via PATCH — retorna 403
+    assert response.status_code == 403
+    assert response.data['code'] == 'fields_not_editable'
 
     user.refresh_from_db()
     assert user.email == "two@email.com"
@@ -136,8 +138,9 @@ def test_update_user_with_invalid_email(client):
     client.login(user)
     response = client.patch(url, json.dumps(data), content_type="application/json")
 
-    assert response.status_code == 400
-    assert response.data['_error_message'] == 'Invalid email'
+    # email não é editável via PATCH — retorna 403
+    assert response.status_code == 403
+    assert response.data['code'] == 'fields_not_editable'
 
     user.refresh_from_db()
     assert user.email == "my@email.com"
@@ -152,8 +155,9 @@ def test_update_user_with_unallowed_domain_email(client, settings):
     client.login(user)
     response = client.patch(url, json.dumps(data), content_type="application/json")
 
-    assert response.status_code == 400
-    assert response.data['_error_message'] == 'Invalid email'
+    # email não é editável via PATCH — retorna 403
+    assert response.status_code == 403
+    assert response.data['code'] == 'fields_not_editable'
 
     user.refresh_from_db()
     assert user.email == "my@email.com"
@@ -168,12 +172,12 @@ def test_update_user_with_allowed_domain_email(client, settings):
     client.login(user)
     response = client.patch(url, json.dumps(data), content_type="application/json")
 
-    assert response.status_code == 200
+    # email não é editável via PATCH — retorna 403
+    assert response.status_code == 403
+    assert response.data['code'] == 'fields_not_editable'
 
     user.refresh_from_db()
     assert user.email == "old@email.com"
-    assert user.email_token is not None
-    assert user.new_email == "new@email.com"
 
 
 def test_update_user_with_valid_email(client):
@@ -184,11 +188,12 @@ def test_update_user_with_valid_email(client):
     client.login(user)
     response = client.patch(url, json.dumps(data), content_type="application/json")
 
-    assert response.status_code == 200
+    # email não é editável via PATCH — retorna 403
+    assert response.status_code == 403
+    assert response.data['code'] == 'fields_not_editable'
+
     user.refresh_from_db()
     assert user.email == "old@email.com"
-    assert user.email_token is not None
-    assert user.new_email == "new@email.com"
 
 
 def test_validate_requested_email_change(client):
@@ -936,6 +941,92 @@ def test_get_voted_list_valid_info():
         assert instance_vote_info["assigned_to_extra_info"]["photo"] == None
         assert instance_vote_info["assigned_to_extra_info"]["gravatar_id"] != None
 
+
+
+ASSIGNED_USER_EXTRA_INFO_FIELDS = {"id", "username", "full_name_display", "photo",
+                                   "big_photo", "gravatar_id", "is_active"}
+
+
+def _watched_info(fav_user, viewer_user, instance, object_type):
+    instance.add_watcher(fav_user)
+    raw_info = get_watched_list(fav_user, viewer_user, type=object_type)[0]
+    return VotedObjectSerializer(into_namedtuple(raw_info)).data
+
+
+def _voted_info(fav_user, viewer_user, instance, object_type):
+    content_type = ContentType.objects.get_for_model(instance)
+    f.VoteFactory(content_type=content_type, object_id=instance.id, user=fav_user)
+    f.VotesFactory(content_type=content_type, object_id=instance.id, count=1)
+    raw_info = get_voted_list(fav_user, viewer_user, type=object_type)[0]
+    return VotedObjectSerializer(into_namedtuple(raw_info)).data
+
+
+@pytest.mark.parametrize("get_info", [_watched_info, _voted_info])
+def test_get_profile_list_userstory_assigned_users_extra_info_sorted_by_id(get_info):
+    fav_user = f.UserFactory()
+    viewer_user = f.UserFactory()
+    assigned_user = f.UserFactory()
+    inactive_assigned_user = f.UserFactory(is_active=False)
+    project = f.ProjectFactory(is_private=False, name="Testing project")
+    user_story = f.UserStoryFactory(project=project, subject="Testing", assigned_to=None,
+                                    assigned_users=[inactive_assigned_user, assigned_user])
+
+    info = get_info(fav_user, viewer_user, user_story, "userstory")
+
+    extra_info = info["assigned_users_extra_info"]
+    assert [u["id"] for u in extra_info] == sorted([assigned_user.id, inactive_assigned_user.id])
+    assert all(set(u.keys()) == ASSIGNED_USER_EXTRA_INFO_FIELDS for u in extra_info)
+    by_id = {u["id"]: u for u in extra_info}
+    assert by_id[assigned_user.id]["username"] == assigned_user.username
+    assert by_id[assigned_user.id]["full_name_display"] == assigned_user.get_full_name()
+    assert by_id[assigned_user.id]["gravatar_id"] != None
+    assert by_id[assigned_user.id]["is_active"] == True
+    assert by_id[inactive_assigned_user.id]["is_active"] == False
+    assert info["assigned_to"] == None
+    assert info["assigned_to_extra_info"] == None
+
+
+@pytest.mark.parametrize("get_info", [_watched_info, _voted_info])
+def test_get_profile_list_userstory_assigned_users_extra_info_ignores_assigned_to(get_info):
+    fav_user = f.UserFactory()
+    viewer_user = f.UserFactory()
+    assigned_to_user = f.UserFactory()
+    project = f.ProjectFactory(is_private=False, name="Testing project")
+    user_story = f.UserStoryFactory(project=project, subject="Testing", assigned_to=assigned_to_user)
+
+    info = get_info(fav_user, viewer_user, user_story, "userstory")
+
+    assert info["assigned_users_extra_info"] == []
+    assert info["assigned_to"] == assigned_to_user.id
+    assert set(info["assigned_to_extra_info"].keys()) == ASSIGNED_USER_EXTRA_INFO_FIELDS
+    assert info["assigned_to_extra_info"]["username"] == assigned_to_user.username
+    assert info["assigned_to_extra_info"]["full_name_display"] == assigned_to_user.get_full_name()
+    assert info["assigned_to_extra_info"]["gravatar_id"] != None
+
+
+@pytest.mark.parametrize("get_info", [_watched_info, _voted_info])
+def test_get_profile_list_other_types_keep_assigned_to_and_no_assigned_users(get_info):
+    fav_user = f.UserFactory()
+    viewer_user = f.UserFactory()
+    assigned_to_user = f.UserFactory()
+    project = f.ProjectFactory(is_private=False, name="Testing project")
+
+    factories = {
+        "epic": f.EpicFactory,
+        "task": f.TaskFactory,
+        "issue": f.IssueFactory
+    }
+
+    for object_type in factories:
+        instance = factories[object_type](project=project, subject="Testing",
+                                          assigned_to=assigned_to_user)
+
+        info = get_info(fav_user, viewer_user, instance, object_type)
+
+        assert info["assigned_users_extra_info"] == []
+        assert info["assigned_to"] == assigned_to_user.id
+        assert info["assigned_to_extra_info"]["username"] == assigned_to_user.username
+        assert info["assigned_to_extra_info"]["is_active"] == True
 
 
 def test_get_watched_list_with_liked_and_voted_objects(client):

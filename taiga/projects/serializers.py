@@ -112,6 +112,7 @@ class TaskStatusSerializer(serializers.LightSerializer):
     order = Field()
     is_closed = Field()
     color = Field()
+    completion_percent = Field()
     project = Field(attr="project_id")
 
 
@@ -275,6 +276,9 @@ class ProjectSerializer(serializers.LightSerializer):
     is_looking_for_people = Field()
     looking_for_people_note = Field()
     blocked_code = Field()
+    start_date = Field()
+    expected_end_date = Field()
+    end_date = Field()
     totals_updated_datetime = Field()
     total_fans = Field()
     total_fans_last_week = Field()
@@ -546,7 +550,9 @@ class ProjectLightSerializer(serializers.LightSerializer):
     total_activity_last_week = Field()
     total_activity_last_month = Field()
     total_activity_last_year = Field()
-
+    start_date = Field()
+    expected_end_date = Field()
+    end_date = Field()
     tags = Field()
     tags_colors = MethodField()
 

@@ -17,13 +17,14 @@ from taiga.projects.mixins.validators import AssignedToValidator
 from taiga.projects.notifications.mixins import EditableWatchedResourceSerializer
 from taiga.projects.notifications.validators import WatchersValidator
 from taiga.projects.tagging.fields import TagsAndTagsColorsField
-from taiga.projects.validators import ProjectExistsValidator
+from taiga.projects.validators import ProjectExistsValidator, BlockedStatusPreventsClosedStatusMixin
+
 
 from . import models
 
 
 class IssueValidator(AssignedToValidator, WatchersValidator, EditableWatchedResourceSerializer,
-                     validators.ModelValidator):
+                     validators.ModelValidator, BlockedStatusPreventsClosedStatusMixin):
 
     tags = TagsAndTagsColorsField(default=[], required=False)
     external_reference = PgArrayField(required=False)
@@ -33,7 +34,7 @@ class IssueValidator(AssignedToValidator, WatchersValidator, EditableWatchedReso
         read_only_fields = ('id', 'ref', 'created_date', 'modified_date', 'owner')
 
 
-class IssuesBulkValidator(ProjectExistsValidator, validators.Validator):
+class IssuesBulkValidator(ProjectExistsValidator, validators.Validator, BlockedStatusPreventsClosedStatusMixin):
     project_id = serializers.IntegerField()
     milestone_id = serializers.IntegerField(required=False)
     bulk_issues = serializers.CharField()
@@ -41,11 +42,11 @@ class IssuesBulkValidator(ProjectExistsValidator, validators.Validator):
 
 # Milestone bulk validators
 
-class _IssueMilestoneBulkValidator(validators.Validator):
+class _IssueMilestoneBulkValidator(validators.Validator, BlockedStatusPreventsClosedStatusMixin):
     issue_id = serializers.IntegerField()
 
 
-class UpdateMilestoneBulkValidator(ProjectExistsValidator, validators.Validator):
+class UpdateMilestoneBulkValidator(ProjectExistsValidator, validators.Validator, BlockedStatusPreventsClosedStatusMixin):
     project_id = serializers.IntegerField()
     milestone_id = serializers.IntegerField()
     bulk_issues = _IssueMilestoneBulkValidator(many=True)

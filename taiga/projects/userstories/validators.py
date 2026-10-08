@@ -21,7 +21,7 @@ from taiga.projects.notifications.mixins import EditableWatchedResourceSerialize
 from taiga.projects.notifications.validators import WatchersValidator
 from taiga.projects.tagging.fields import TagsAndTagsColorsField
 from taiga.projects.userstories.models import UserStory
-from taiga.projects.validators import ProjectExistsValidator
+from taiga.projects.validators import ProjectExistsValidator, BlockedStatusPreventsClosedStatusMixin
 
 from . import models
 
@@ -46,7 +46,7 @@ class RolePointsField(serializers.WritableField):
 
 
 class UserStoryValidator(AssignedToValidator, WatchersValidator,
-                         EditableWatchedResourceSerializer, validators.ModelValidator):
+                         EditableWatchedResourceSerializer, validators.ModelValidator, BlockedStatusPreventsClosedStatusMixin):
     tags = TagsAndTagsColorsField(default=[], required=False)
     external_reference = PgArrayField(required=False)
     points = RolePointsField(source="role_points", required=False)
@@ -58,7 +58,7 @@ class UserStoryValidator(AssignedToValidator, WatchersValidator,
         read_only_fields = ('id', 'ref', 'created_date', 'modified_date', 'owner', 'kanban_order')
 
 
-class UserStoriesBulkValidator(ProjectExistsValidator, validators.Validator):
+class UserStoriesBulkValidator(ProjectExistsValidator, validators.Validator, BlockedStatusPreventsClosedStatusMixin):
     project_id = serializers.IntegerField()
     status_id = serializers.IntegerField(required=False)
     swimlane_id = serializers.IntegerField(required=False)
@@ -92,7 +92,7 @@ class UserStoriesBulkValidator(ProjectExistsValidator, validators.Validator):
 
 # Order bulk validators
 
-class UpdateUserStoriesBacklogOrderBulkValidator(ProjectExistsValidator, validators.Validator):
+class UpdateUserStoriesBacklogOrderBulkValidator(ProjectExistsValidator, validators.Validator, BlockedStatusPreventsClosedStatusMixin):
     project_id = serializers.IntegerField()
     milestone_id = serializers.IntegerField(required=False)
     after_userstory_id = serializers.IntegerField(required=False)
@@ -167,7 +167,7 @@ class UpdateUserStoriesBacklogOrderBulkValidator(ProjectExistsValidator, validat
         return attrs
 
 
-class UpdateUserStoriesKanbanOrderBulkValidator(ProjectExistsValidator, validators.Validator):
+class UpdateUserStoriesKanbanOrderBulkValidator(ProjectExistsValidator, validators.Validator, BlockedStatusPreventsClosedStatusMixin):
     project_id = serializers.IntegerField()
     status_id = serializers.IntegerField()
     swimlane_id = serializers.IntegerField(required=False)
@@ -256,12 +256,12 @@ class UpdateUserStoriesKanbanOrderBulkValidator(ProjectExistsValidator, validato
 
 # Milestone bulk validators
 
-class _UserStoryMilestoneBulkValidator(validators.Validator):
+class _UserStoryMilestoneBulkValidator(validators.Validator, BlockedStatusPreventsClosedStatusMixin):
     us_id = serializers.IntegerField()
     order = serializers.IntegerField()
 
 
-class UpdateMilestoneBulkValidator(ProjectExistsValidator, validators.Validator):
+class UpdateMilestoneBulkValidator(ProjectExistsValidator, validators.Validator, BlockedStatusPreventsClosedStatusMixin):
     project_id = serializers.IntegerField()
     milestone_id = serializers.IntegerField()
     bulk_stories = _UserStoryMilestoneBulkValidator(many=True)

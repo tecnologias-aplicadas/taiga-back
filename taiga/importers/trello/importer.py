@@ -224,7 +224,7 @@ class TrelloImporter:
             "order": 70,
         })
 
-        tags_colors = []
+        tags_colors = [] #TODO: REVISAR LOGICA DE CORES
         for label in labels:
             name = label['name']
             if not name:
@@ -548,7 +548,7 @@ class TrelloImporter:
         try:
             return webcolors.name_to_hex(color)
         except ValueError:
-            return color
+            return "#A9AABC"
 
     def _cleanup(self, project, options):
         if not options.get("import_closed_data", False):

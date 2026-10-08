@@ -348,12 +348,20 @@ def update_userstories_kanban_order_in_bulk(user: User,
                               projectid=project.pk)
 
     # Generate response with modified info
+    updated_userstories = project.user_stories.filter(id__in=user_story_ids)
+    updated_map = {us.id: us for us in updated_userstories}
+
     res = ({
         "id": id,
         "swimlane": swimlane.id if swimlane else None,
         "status": status.id,
-        "kanban_order": kanban_order
+        "kanban_order": kanban_order,
+        "model": {
+            "completion_percent_progress": updated_map[id].completion_percent_progress,
+            "completion_percent_done": updated_map[id].completion_percent_done
+        }
     } for (id, kanban_order) in data)
+
     return res
 
 
@@ -368,6 +376,7 @@ def _async_tasks_after_kanban_order_change(userstories_ids, user_id):
         recalculate_is_closed_for_userstory_and_its_milestone(userstory)
         # Generate the history entity
         take_snapshot(userstory, user=user)
+
 
 
 def update_userstories_milestone_in_bulk(bulk_data: list, milestone: object):
@@ -420,18 +429,28 @@ def snapshot_userstories_in_bulk(bulk_data, user):
 # Open/Close calcs
 #####################################################
 
-def calculate_userstory_is_closed(user_story):
+def calculate_userstory_is_closed(user_story) -> bool:
     if user_story.status is None:
         return False
 
-    if user_story.tasks.count() == 0:
-        return user_story.status is not None and user_story.status.is_closed
+    tasks = user_story.tasks.all()
 
-    if all([task.status is not None and task.status.is_closed for task in
-            user_story.tasks.all()]):
+    # Se não há tasks, considera o status da própria user story
+    if not tasks:
+        return user_story.status.is_closed
+
+    # Se todas as tasks estão com status fechado, a user story está concluída
+    if all(task.status and task.status.is_closed for task in tasks):
         return True
-
+    
+    # Se houver uma atividade aberta, a user story não pode ser considerada fechada
     return False
+
+    # Senão, calcula média de completion_percent_progress
+    # total_completion = sum(task.completion_percent_progress for task in tasks)
+    # avg_completion = total_completion / len(tasks)
+    # return avg_completion >= 100
+
 
 
 def close_userstory(us):

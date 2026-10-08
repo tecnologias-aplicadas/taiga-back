@@ -2,6 +2,7 @@
 .#*
 *.log
 taiga/search
+venv_taiga11
 settings/local.py
 settings/celery_local.py
 database.sqlite
@@ -20,5 +21,21 @@ static
 .env
 .envrc
 .direnv
-settings/config.py
 celerybeat-schedule
+dockerdb/data/
+.codegpt
+.taiga
+.amazonq
+dockerdb/rabbitmq/
+.vscode/settings.json
+
+### Testes automatizados com cypress ###
+*.mp4
+techdocs/testes-automatizados/cypress/fixtures/usuarios.json
+techdocs/testes-automatizados/cypress/fixtures/tokens.json
+techdocs/testes-automatizados/node_modules
+techdocs/testes-automatizados/cypress/downloads
+techdocs/testes-automatizados/cypress/report
+techdocs/testes-automatizados/cypress/screenshots
+
+

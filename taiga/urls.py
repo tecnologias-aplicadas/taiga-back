@@ -10,7 +10,7 @@ from django.urls import include, re_path
 from django.contrib import admin
 from django.urls import path
 
-from .routers import router
+from .routers import urlpatterns as api_v1_urlpatterns
 
 
 ##############################################
@@ -18,7 +18,7 @@ from .routers import router
 ##############################################
 
 urlpatterns = [
-    path('api/v1/', include(router.urls)),
+    path('api/v1/', include(api_v1_urlpatterns)),
     path('admin/', admin.site.urls),
 ]
 

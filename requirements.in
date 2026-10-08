@@ -21,7 +21,7 @@ python-magic==0.4.15
 pytz
 raven
 redis==4.5.3
-requests==2.27.1
+requests==2.32.5
 requests_oauthlib
 rudder-sdk-python==1.0.0b1
 serpy==0.1.1

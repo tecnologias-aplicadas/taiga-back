@@ -13,6 +13,8 @@ from django.db.models.expressions import RawSQL
 from django.db.models import Q
 from django.db.models.query import QuerySet
 from django.db import connection
+from django.db.models import F, Window
+from django.db.models.functions import RowNumber
 
 from functools import partial, wraps
 
@@ -21,6 +23,24 @@ from taiga.celery import app
 
 _timeline_impl_map = {}
 
+_UNIQUE_FIELD_NAMES = [
+    "namespace",
+    "event_type",
+    "project_id",
+    "data_content_type_id",
+    "created",
+]
+
+def _dedup(qs):
+    """
+    Usa DISTINCT ON para pegar só a linha mais recente (id mais alto)
+    de cada grupo definido por _UNIQUE_FIELD_NAMES.
+    """
+    return (
+        qs.order_by(*_UNIQUE_FIELD_NAMES, "-id")
+          .distinct(*_UNIQUE_FIELD_NAMES)
+          .order_by("-created")
+    )
 
 def _get_impl_key_from_model(model: Model, event_type: str):
     if issubclass(model, Model):
@@ -231,7 +251,7 @@ def get_profile_timeline(user, accessing_user=None):
     timeline = get_timeline(user)
     if accessing_user is not None:
         timeline = filter_timeline_for_user(timeline, accessing_user)
-    return timeline
+    return _dedup(timeline)
 
 
 def get_user_timeline(user, accessing_user=None):
@@ -239,7 +259,7 @@ def get_user_timeline(user, accessing_user=None):
     timeline = get_timeline(user, namespace)
     if accessing_user is not None:
         timeline = filter_timeline_for_user(timeline, accessing_user, namespace)
-    return timeline
+    return _dedup(timeline)
 
 
 def get_project_timeline(project, accessing_user=None):

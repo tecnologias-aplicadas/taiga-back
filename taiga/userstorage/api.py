@@ -16,6 +16,8 @@ from . import serializers
 from . import validators
 from . import permissions
 
+from taiga.base.response import Response
+
 
 class StorageEntriesViewSet(ModelCrudViewSet):
     model = models.StorageEntry
@@ -43,3 +45,13 @@ class StorageEntriesViewSet(ModelCrudViewSet):
                   "Key '{}' already exists.").format(key)
             )
         return super().create(*args, **kwargs)
+
+    def retrieve(self, request, *args, **kwargs):
+        key = kwargs.get("key")
+
+        try:
+            obj = self.get_queryset().get(key=key)
+            serializer = self.get_serializer(obj)
+            return Response(serializer.data)
+        except models.StorageEntry.DoesNotExist:
+            return Response({})

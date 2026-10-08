@@ -1133,6 +1133,7 @@ def test_promote_task_to_us(client):
     assert us_response.data["owner"] == task.owner_id
     assert us_response.data["generated_from_task"] == None
     assert us_response.data["assigned_users"] == {user_2.id}
+    assert set(us.assigned_users.values_list("id", flat=True)) == {user_2.id}
     assert us_response.data["total_watchers"] == 2
     assert us_response.data["total_attachments"] == 1
     assert us_response.data["total_comments"] == 2
@@ -1144,3 +1145,24 @@ def test_promote_task_to_us(client):
     # check if task is deleted
     assert us_response.data["from_task_ref"] == us.from_task_ref
     assert not Task.objects.filter(pk=task.id).exists()
+
+
+def test_promote_task_to_us_without_assigned_to(client):
+    user_1 = f.UserFactory.create()
+    project = f.ProjectFactory.create(owner=user_1)
+    f.MembershipFactory.create(project=project, user=user_1, is_admin=True)
+    task = f.TaskFactory.create(project=project, owner=user_1, assigned_to=None)
+
+    client.login(user_1)
+
+    url = reverse('tasks-promote-to-user-story', kwargs={"pk": task.pk})
+    data = {"project_id": project.id}
+    promote_response = client.json.post(url, json.dumps(data))
+
+    us_ref = promote_response.data.pop()
+    us = UserStory.objects.get(ref=us_ref)
+    us_response = client.get(reverse("userstories-detail", args=[us.pk]))
+
+    assert promote_response.status_code == 200, promote_response.data
+    assert not us_response.data["assigned_users"]
+    assert us.assigned_users.count() == 0

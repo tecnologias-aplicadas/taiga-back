@@ -69,6 +69,8 @@ def promote_to_us(source_obj):
 
 def _import_assigned(source_obj, target_obj):
     if source_obj.assigned_to:
+        target_obj.assigned_to = source_obj.assigned_to
+        target_obj.save()
         target_obj.assigned_users.add(source_obj.assigned_to)
 
 

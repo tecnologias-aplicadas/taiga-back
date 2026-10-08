@@ -162,6 +162,62 @@ def test_create_userstory_with_assigned_users(client):
     assert response.data["assigned_users"] == set([user.id, user_watcher.id])
 
 
+ASSIGNED_USER_EXTRA_INFO_FIELDS = {"id", "username", "full_name_display", "photo",
+                                   "big_photo", "gravatar_id", "is_active"}
+
+
+def _list_userstory_with_assigned_users(client, assigned_to=None, assigned_users=None,
+                                        query=""):
+    user = f.UserFactory(is_superuser=True)
+    user2 = f.UserFactory(is_superuser=True)
+    project = f.ProjectFactory.create(owner=user)
+    f.MembershipFactory.create(project=project, user=user)
+    f.MembershipFactory.create(project=project, user=user2)
+    users = {"user": user, "user2": user2}
+    f.create_userstory(owner=user, subject="test assigned users", project=project,
+                       assigned_to=users.get(assigned_to),
+                       assigned_users=[users[name].id for name in (assigned_users or [])])
+    client.login(user)
+
+    response = client.get(reverse("userstories-list") + query)
+
+    assert response.status_code == 200
+    assert len(response.data) == 1
+    return response.data[0], users
+
+
+def test_api_list_userstories_assigned_users_extra_info_sorted_by_id(client):
+    us_data, users = _list_userstory_with_assigned_users(client, assigned_users=["user2", "user"])
+
+    extra_info = us_data["assigned_users_extra_info"]
+    assert [u["id"] for u in extra_info] == sorted([users["user"].id, users["user2"].id])
+    assert all(set(u.keys()) == ASSIGNED_USER_EXTRA_INFO_FIELDS for u in extra_info)
+    assert extra_info[0]["username"] == users["user"].username
+    assert extra_info[0]["full_name_display"] == users["user"].get_full_name()
+
+
+def test_api_list_userstories_assigned_users_extra_info_on_dashboard(client):
+    us_data, users = _list_userstory_with_assigned_users(client, assigned_users=["user2", "user"],
+                                                         query="?dashboard=true")
+
+    extra_info = us_data["assigned_users_extra_info"]
+    assert [u["id"] for u in extra_info] == sorted([users["user"].id, users["user2"].id])
+    assert all(set(u.keys()) == ASSIGNED_USER_EXTRA_INFO_FIELDS for u in extra_info)
+
+
+def test_api_list_userstories_assigned_users_extra_info_empty_without_assigned_users(client):
+    us_data, _ = _list_userstory_with_assigned_users(client)
+
+    assert us_data["assigned_users_extra_info"] == []
+
+
+def test_api_list_userstories_assigned_users_extra_info_ignores_assigned_to(client):
+    us_data, users = _list_userstory_with_assigned_users(client, assigned_to="user")
+
+    assert us_data["assigned_to"] == users["user"].id
+    assert us_data["assigned_users_extra_info"] == []
+
+
 def test_create_userstory_with_watchers(client):
     user = f.UserFactory.create()
     user_watcher = f.UserFactory.create()

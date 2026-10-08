@@ -29,7 +29,54 @@ class MilestoneExistsValidator:
 class MilestoneValidator(WatchersValidator, DuplicatedNameInProjectValidator, validators.ModelValidator):
     class Meta:
         model = models.Milestone
-        read_only_fields = ("id", "created_date", "modified_date")
+        # Resultado da sprint só é gravado pela ação própria do servidor (RN06ADQ).
+        read_only_fields = ("id", "created_date", "modified_date",
+                            "goal_achievement", "result", "result_date", "result_by")
+
+    def validate_goal(self, attrs, source):
+        # Objetivo obrigatório na criação e imutável depois (RN02ADQ, RN03ADQ).
+        goal = attrs.get(source)
+        if goal is None or not goal.strip():
+            raise ValidationError(_("The sprint goal is required"))
+
+        if self.object is not None and goal != self.object.goal:
+            raise ValidationError(_("The sprint goal cannot be changed after the sprint is created"))
+
+        return attrs
+
+
+class CloseWithResultValidator(validators.Validator):
+    """
+    Payload da ação que registra o resultado do objetivo e fecha a sprint
+    (RN04ADQ, RN05ADQ). Recebe a sprint atual em `context["milestone"]`.
+    """
+    goal_achievement = serializers.ChoiceField(choices=models.GoalAchievement.choices)
+    result = serializers.CharField()
+    milestone_id = serializers.IntegerField(required=False)
+
+    def validate_result(self, attrs, source):
+        result = attrs.get(source)
+        if result is None or not result.strip():
+            raise ValidationError(_("The sprint result is required"))
+        return attrs
+
+    def validate_milestone_id(self, attrs, source):
+        destination_id = attrs.get(source)
+        if destination_id is None:
+            return attrs
+
+        milestone = self.context["milestone"]
+        if destination_id == milestone.pk:
+            raise ValidationError(_("The destination sprint must be different from the current one"))
+
+        destination = models.Milestone.objects.filter(pk=destination_id,
+                                                      project_id=milestone.project_id).first()
+        if destination is None:
+            raise ValidationError(_("The milestone isn't valid for the project"))
+        if destination.closed:
+            raise ValidationError(_("The destination sprint must be open"))
+
+        return attrs
 
 
 # bulk validators

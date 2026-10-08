@@ -259,6 +259,7 @@ def test_milestone_create(client, data):
         "name": "test",
         "estimated_start": "2014-12-10",
         "estimated_finish": "2014-12-24",
+        "goal": "test goal",
         "project": data.public_project.pk,
     })
     results = helper_test_http_method(client, 'post', url, create_data, users,
@@ -269,6 +270,7 @@ def test_milestone_create(client, data):
         "name": "test",
         "estimated_start": "2014-12-10",
         "estimated_finish": "2014-12-24",
+        "goal": "test goal",
         "project": data.private_project1.pk,
     })
 
@@ -280,6 +282,7 @@ def test_milestone_create(client, data):
         "name": "test",
         "estimated_start": "2014-12-10",
         "estimated_finish": "2014-12-24",
+        "goal": "test goal",
         "project": data.private_project2.pk,
     })
     results = helper_test_http_method(client, 'post', url, create_data, users, lambda: Milestone.objects.all().delete())
@@ -289,6 +292,7 @@ def test_milestone_create(client, data):
         "name": "test",
         "estimated_start": "2014-12-10",
         "estimated_finish": "2014-12-24",
+        "goal": "test goal",
         "project": data.blocked_project.pk,
     })
     results = helper_test_http_method(client, 'post', url, create_data, users, lambda: Milestone.objects.all().delete())

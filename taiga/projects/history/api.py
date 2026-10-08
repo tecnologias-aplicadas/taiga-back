@@ -211,3 +211,66 @@ class IssueHistory(HistoryViewSet):
 class WikiHistory(HistoryViewSet):
     content_type = "wiki.wikipage"
     permission_classes = (permissions.WikiHistoryPermission,)
+
+from .models import CommentReaction
+from collections import OrderedDict
+import emoji
+
+class CommentReactionViewSet(ReadOnlyListViewSet):
+    serializer_class = serializers.CommentReactionSerializer
+
+    def get_queryset(self):
+        comment_id = self.kwargs.get("comment_pk")
+        return CommentReaction.objects.filter(comment_id=comment_id)
+
+    @detail_route(methods=["post"])
+    def add_reaction(self, request, comment_pk):
+
+        if not request.user or not request.user.is_authenticated:
+            return response.Unauthorized({"error": _("Authentication required")})
+
+        emoji_value = request.DATA.get("emoji")
+        if not emoji_value:
+            return response.BadRequest({"error": _("emoji is required")})
+
+        if emoji_value not in emoji.EMOJI_DATA:
+            return response.BadRequest({"error": _("invalid emoji")})
+
+        reaction, created = CommentReaction.objects.get_or_create(
+            comment_id=comment_pk,
+            user=request.user,
+            emoji=emoji_value,
+        )
+        serializer = self.serializer_class(reaction)
+        return response.Ok(serializer.data)
+
+    @detail_route(methods=["delete"])
+    def remove_reaction(self, request, comment_pk):
+        emoji_value = request.DATA.get("emoji")
+
+        if not emoji:
+            return response.BadRequest({"error": _("emoji is required")})
+
+        if emoji_value not in emoji.EMOJI_DATA:
+            return response.BadRequest({"error": _("invalid emoji")})
+
+        CommentReaction.objects.filter(
+            comment_id=comment_pk,
+            user=request.user,
+            emoji=emoji_value,
+        ).delete()
+        return response.Ok({"detail": _("Reaction removed successfully")})
+
+
+    @detail_route(methods=["get"])
+    def list_reactions(self, request, comment_pk):
+        reactions = self.get_queryset().order_by("created_at")
+        grouped = OrderedDict()
+
+        for reaction in reactions:
+            emoji = reaction.emoji
+            if emoji not in grouped:
+                grouped[emoji] = {"count": 0, "users": []}
+            grouped[emoji]["count"] += 1
+            grouped[emoji]["users"].append(reaction.user_id)
+        return response.Ok(grouped)

@@ -54,9 +54,9 @@ def test_view_storage_entries(client):
     user2 = factories.UserFactory()
     storage11 = factories.StorageEntryFactory(owner=user1)
 
-    # Get by anonymous user
+    # Get by anonymous user — retrieve returns 200 with {} when not found
     response = client.json.get(reverse("user-storage-detail", args=[storage11.key]))
-    assert response.status_code == 404
+    assert response.status_code == 200
 
     # Get single entry
     client.login(username=user1.username, password=user1.username)
@@ -65,13 +65,13 @@ def test_view_storage_entries(client):
     assert response.data["key"] == storage11.key
     assert response.data["value"] == storage11.value
 
-    # Get not existent key
+    # Get not existent key — returns 200 with {}
     client.login(username=user2.username, password=user2.username)
     response = client.json.get(reverse("user-storage-detail", args=[storage11.key]))
-    assert response.status_code == 404
+    assert response.status_code == 200
 
     response = client.json.get(reverse("user-storage-detail", args=["foobar"]))
-    assert response.status_code == 404
+    assert response.status_code == 200
 
 
 def test_create_entries(client):
@@ -127,10 +127,10 @@ def test_update_entries(client):
     assert response.status_code == 200
     assert response.data["value"] == form["value"]
 
-    # Update not existing entry
+    # Update not existing entry — GET returns 200 with {}
     form = {"value": {"bar": "bar"}, "key": "foo"}
     response = client.json.get(reverse("user-storage-detail", args=[form["key"]]))
-    assert response.status_code == 404
+    assert response.status_code == 200
     response = client.json.put(reverse("user-storage-detail", args=[form["key"]]),
                                json.dumps(form))
     assert response.status_code == 404
@@ -151,7 +151,7 @@ def test_delete_storage_entry(client):
     assert response.status_code == 204
 
     response = client.json.get(reverse("user-storage-detail", args=[storage11.key]))
-    assert response.status_code == 404
+    assert response.status_code == 200  # retrieve returns {} with 200 when not found
 
     # Delete not existent entry
     response = client.json.delete(reverse("user-storage-detail", args=["foo"]))

@@ -232,7 +232,11 @@ class PermissionBasedAttachmentFilterBackend(PermissionBasedFilterBackend):
 
         ct = view.get_content_type()
         return qs.filter(content_type=ct)
+    
 
+class CanViewCardRelationsFilterBackend(PermissionBasedFilterBackend):
+    permission = "view_card_relations"
+    
 
 class CanViewEpicAttachmentFilterBackend(PermissionBasedAttachmentFilterBackend):
     permission = "view_epics"
@@ -464,6 +468,11 @@ class SeveritiesFilter(BaseRelatedFieldsFilter):
     exclude_param_name = 'exclude_severity'
 
 
+class MilestoneFilter(BaseRelatedFieldsFilter):
+    filter_name = 'milestone'
+    exclude_param_name = 'exclude_milestone'
+
+
 class TagsFilter(FilterBackend):
     filter_name = 'tags'
     exclude_param_name = 'exclude_tags'
@@ -665,5 +674,3 @@ class QFilter(FilterBackend):
             queryset = queryset.extra(where=[where_clause], params=[to_tsquery(q)])
 
         return queryset
-
-

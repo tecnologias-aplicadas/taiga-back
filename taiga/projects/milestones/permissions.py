@@ -26,6 +26,7 @@ class MilestonePermission(TaigaResourcePermission):
     move_uss_to_sprint_perms = HasProjectPerm('modify_us')
     move_tasks_to_sprint_perms = HasProjectPerm('modify_task')
     move_issues_to_sprint_perms = HasProjectPerm('modify_issue')
+    close_with_result_perms = HasProjectPerm('modify_milestone')
 
 
 class MilestoneWatchersPermission(TaigaResourcePermission):

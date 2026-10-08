@@ -7,7 +7,7 @@
 
 from django.apps import apps
 from django.db import transaction
-from django.db.models import Max
+from django.db.models import Max, Q
 
 from django.utils.translation import gettext as _
 from django.http import HttpResponse
@@ -37,6 +37,8 @@ from taiga.projects.tagging.api import TaggedResourceMixin
 from taiga.projects.votes.mixins.viewsets import VotedResourceMixin
 from taiga.projects.votes.mixins.viewsets import VotersViewSetMixin
 from taiga.projects.userstories.utils import attach_extra_info
+from taiga.projects.card_relations.models import CardRelation
+from taiga.projects.card_relations.choices import CardType
 
 from . import filters
 from . import models
@@ -114,6 +116,8 @@ class UserStoryViewSet(AssignedUsersSignalMixin, OCCResourceMixin,
                                "status",
                                "assigned_to")
 
+        qs = qs.prefetch_related("assigned_users")
+
         if self.action == "list" and self.request.QUERY_PARAMS.get('dashboard', False):
             return qs
 
@@ -121,8 +125,6 @@ class UserStoryViewSet(AssignedUsersSignalMixin, OCCResourceMixin,
                                "owner",
                                "generated_from_issue",
                                "generated_from_task")
-
-        qs = qs.prefetch_related("assigned_users")
         include_attachments = "include_attachments" in self.request.QUERY_PARAMS
         include_tasks = "include_tasks" in self.request.QUERY_PARAMS
 
@@ -197,6 +199,15 @@ class UserStoryViewSet(AssignedUsersSignalMixin, OCCResourceMixin,
         if obj.swimlane_id and obj.swimlane.project != obj.project:
             raise exc.PermissionDenied(_("You don't have permissions to set this swimlane "
                                          "to this user story."))
+
+    def pre_delete(self, obj):
+        if CardRelation.objects.filter(
+            Q(source_type=CardType.USERSTORY, source_id=obj.id) |
+            Q(target_type=CardType.USERSTORY, target_id=obj.id),
+            is_active=True
+        ).exists():
+            raise exc.BadRequest({"code": "has_active_card_relations"})
+        super().pre_delete(obj)
 
     def pre_save(self, obj):
         # ## start-hack-reorder ##
@@ -479,6 +490,12 @@ class UserStoryViewSet(AssignedUsersSignalMixin, OCCResourceMixin,
 
         # Get status
         status = get_object_or_error(UserStoryStatus, request.user, pk=data["status_id"], project=project)
+
+        # Blocked stories cannot be moved to a closed status
+        if status.is_closed:
+            blocked_ids = data["bulk_userstories"]
+            if models.UserStory.objects.filter(project=project, id__in=blocked_ids, is_blocked=True).exists():
+                raise exc.WrongArguments({"code": "blocked_item_cannot_be_closed"})
 
         # Get swimlane
         swimlane = None

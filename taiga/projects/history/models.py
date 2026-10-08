@@ -324,3 +324,23 @@ class HistoryEntry(models.Model):
 
     class Meta:
         ordering = ["created_at"]
+
+
+class CommentReaction(models.Model):
+    """
+    Domain model that represents a comment reaction
+    storage table.
+
+    It is used to store reactions (emojis) added by
+    users to comments.
+    """
+    objects = models.Manager()
+    id = models.AutoField(primary_key=True)
+    comment = models.ForeignKey(HistoryEntry, related_name="reactions", on_delete=models.CASCADE)
+    user = models.ForeignKey("users.User", on_delete=models.CASCADE)
+    emoji = models.CharField(max_length=10)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("comment", "user", "emoji")
+        ordering = ["-created_at"]

@@ -35,6 +35,7 @@ from taiga.base.utils.db import get_typename_for_model_class
 from taiga.base.utils.diff import make_diff as make_diff_from_dicts
 
 from .models import HistoryType
+from .cardrelation_history_helpers import CARDRELATION_DIFF_KEY
 
 # Freeze implementatitions
 from .freeze_impl import project_freezer
@@ -45,6 +46,7 @@ from .freeze_impl import userstory_freezer
 from .freeze_impl import issue_freezer
 from .freeze_impl import task_freezer
 from .freeze_impl import wikipage_freezer
+from .freeze_impl import cardrelation_freezer #187 Histórico de alteração de relacionamento
 
 
 from .freeze_impl import project_values
@@ -55,6 +57,7 @@ from .freeze_impl import userstory_values
 from .freeze_impl import issue_values
 from .freeze_impl import task_values
 from .freeze_impl import wikipage_values
+from .freeze_impl import cardrelation_values #187 Histórico de alteração de relacionamento
 
 # Type that represents a freezed object
 FrozenObj = namedtuple("FrozenObj", ["key", "snapshot"])
@@ -76,8 +79,15 @@ _not_important_fields = {
 }
 
 _deprecated_fields = {
-    "userstories.userstory": frozenset(["assigned_to"]),
+    "userstories.userstory": frozenset(["assigned_to", CARDRELATION_DIFF_KEY]),
+    "epics.epic": frozenset([CARDRELATION_DIFF_KEY]),
+    "tasks.task": frozenset([CARDRELATION_DIFF_KEY]),
+    "issues.issue": frozenset([CARDRELATION_DIFF_KEY]),
 }
+
+# Keys written to the history by other sources (card relation activities) that
+# are not part of the frozen object and must not leak into rebuilt snapshots.
+_non_snapshot_diff_keys = frozenset([CARDRELATION_DIFF_KEY])
 
 log = logging.getLogger("taiga.history")
 
@@ -310,6 +320,8 @@ def _rebuild_snapshot_from_diffs(keysnapshot, partials):
 
     for part in partials:
         for key, value in part.diff.items():
+            if key in _non_snapshot_diff_keys:
+                continue
             result[key] = value[1]
 
     return result
@@ -465,6 +477,91 @@ def prefetch_owners_in_history_queryset(qs):
     return qs
 
 
+#187 Histórico de alteração de relacionamento
+
+def build_cardrelation_comment(relation):
+    """
+    Retorna um 'comment' amigável para o History de Relações entre Atividades.
+    Exemplo: USERSTORY-9 BLOCKS USERSTORY-20
+    """
+
+    RELATION_LABELS = {
+        "RT": "RELATED TO",
+        "BK": "BLOCKS",
+        "BKBY": "BLOCKED BY",
+        "DPON": "DEPENDS ON",
+        "DPME": "DEPENDS ME",
+        "DUBY": "DUPLICATED BY",
+        "DUFROM": "DUPLICATED FROM",
+        "DWT": "DISCOVERED WHILE TESTING",
+        "LTDWT": "LED TO DISCOVERED WHILE TESTING"
+    }
+
+    model_map = {
+        "issue": ("issues", "Issue"),
+        "userstory": ("userstories", "UserStory"),
+        "task": ("tasks", "Task"),
+        "epic": ("epics", "Epic"),
+    }
+
+    def _relation_value(obj, field, default=None):
+        if isinstance(obj, dict):
+            return obj.get(field, default)
+        return getattr(obj, field, default)
+
+    def get_ref(card_type, card_id):
+        mapping = model_map.get(card_type)
+        if not mapping:
+            return None
+
+        app_label, model_name = mapping
+        Model = apps.get_model(app_label, model_name)
+        card_obj = Model.objects.filter(id=card_id).only("ref").first()
+        return card_obj.ref if card_obj else None
+
+    source_type = _relation_value(relation, "source_type")
+    source_id = _relation_value(relation, "source_id")
+    target_type = _relation_value(relation, "target_type")
+    target_id = _relation_value(relation, "target_id")
+    relation_type = _relation_value(relation, "relation_type")
+
+    source_ref = get_ref(source_type, source_id)
+    target_ref = get_ref(target_type, target_id)
+    relation_label = RELATION_LABELS.get(relation_type, relation_type)
+
+    if source_ref and target_ref and relation_label:
+        return "{}-{} {} {}-{}".format(
+            source_type.upper(),
+            source_ref,
+            relation_label,
+            target_type.upper(),
+            target_ref,
+        )
+
+    return "Relation created"
+
+#187 Histórico de alteração de relacionamento
+def build_cardrelation_update_comment(before_relation, after_relation):
+    before_text = build_cardrelation_comment(before_relation)
+    after_text = build_cardrelation_comment(after_relation)
+
+    if before_text == after_text:
+        return after_text
+
+    return "{} → {}".format(before_text, after_text)
+
+
+#187 Histórico de alteração de relacionamento
+def build_cardrelation_resolved_comment(relation):
+    relation_text = build_cardrelation_comment(relation)
+    return "{} was resolved".format(relation_text)
+
+
+def build_cardrelation_removed_comment(relation):
+    relation_text = build_cardrelation_comment(relation)
+    return "{} was removed".format(relation_text)
+
+
 # Freeze & value register
 register_freeze_implementation("projects.project", project_freezer)
 register_freeze_implementation("milestones.milestone", milestone_freezer)
@@ -475,6 +572,7 @@ register_freeze_implementation("userstories.userstory", userstory_freezer)
 register_freeze_implementation("issues.issue", issue_freezer)
 register_freeze_implementation("tasks.task", task_freezer)
 register_freeze_implementation("wiki.wikipage", wikipage_freezer)
+register_freeze_implementation("card_relations.cardrelation", cardrelation_freezer) #187 Histórico de alteração de relacionamento
 
 register_values_implementation("projects.project", project_values)
 register_values_implementation("milestones.milestone", milestone_values)
@@ -485,3 +583,4 @@ register_values_implementation("userstories.userstory", userstory_values)
 register_values_implementation("issues.issue", issue_values)
 register_values_implementation("tasks.task", task_values)
 register_values_implementation("wiki.wikipage", wikipage_values)
+register_values_implementation("card_relations.cardrelation", cardrelation_values) #187 Histórico de alteração de relacionamento

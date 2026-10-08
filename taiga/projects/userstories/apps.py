@@ -17,6 +17,11 @@ def connect_userstories_signals():
 
     # When deleting user stories we must disable task signals while deleting and
     # enabling them in the end
+
+    signals.pre_delete.connect(handlers.cache_related_epics_before_delete,
+                               sender=apps.get_model("userstories", "UserStory"),
+                               dispatch_uid='cache_related_epics_before_delete')
+    
     signals.pre_delete.connect(handlers.disable_task_signals,
                                sender=apps.get_model("userstories", "UserStory"),
                                dispatch_uid='disable_task_signals')

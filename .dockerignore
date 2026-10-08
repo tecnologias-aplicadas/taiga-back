@@ -3,7 +3,6 @@
 *.pyd
 *.pyo
 .Python
-.cache
 .coverage
 .ctags
 .dockerignore
@@ -21,6 +20,7 @@ CODE_OF_CONDUCT.md
 CONTRIBUTING.md
 DCOLICENSE
 docker/Dockerfile
+docker/Dockerfile-Tests
 ISSUE_TEMPLATE.md
 README.md
 __pycache__
@@ -37,9 +37,18 @@ requirements-contribs.in
 scripts
 setup.cfg
 static
+!taiga/base/static
+!taiga/base/static/**
 tests
 thankyou.md
 tox.ini
 venv
 .direnv
 .envrc
+.env.example
+.gitlab-ci.yml
+.github
+.vscode
+dockerdb
+techdocs
+docs

@@ -282,6 +282,8 @@ DEFAULTS = {
 
     'JTI_CLAIM': 'jti',
     'TOKEN_USER_CLASS': 'taiga.auth.models.TokenUser',
+    'CAPCHA_SITE_KEY': settings.CAPCHA_SITE_KEY,
+    'CAPCHA_SECRET_KEY': settings.CAPCHA_SECRET_KEY,
 }
 
 IMPORT_STRINGS = (

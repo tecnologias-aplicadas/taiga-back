@@ -5,6 +5,7 @@
 #
 # Copyright (c) 2021-present Kaleidos INC
 
+from django.db.models import Sum, Q
 from django.http import HttpResponse
 from django.utils.translation import gettext as _
 
@@ -26,6 +27,9 @@ from taiga.projects.tagging.api import TaggedResourceMixin
 from taiga.projects.votes.mixins.viewsets import VotedResourceMixin, VotersViewSetMixin
 
 from django_pglocks import advisory_lock
+
+from taiga.projects.card_relations.models import CardRelation
+from taiga.projects.card_relations.choices import CardType
 
 from . import models
 from . import permissions
@@ -80,7 +84,30 @@ class EpicViewSet(OCCResourceMixin, VotedResourceMixin, HistoryResourceMixin, Wa
         super().pre_conditions_on_save(obj)
 
         if obj.status and obj.status.project != obj.project:
-            raise exc.WrongArguments(_("You don't have permissions to set this status to this epic."))
+            raise exc.WrongArguments({"code": "invalid_status_for_epic"})
+
+        if 'completion_date' in self.request.DATA:
+            if obj.completion_date is not None and (obj.status is None or not obj.status.is_closed):
+                raise exc.WrongArguments({"code": "completion_date_requires_closed_status"})
+
+        if obj.schedulable is True and ('percentage_impact' in self.request.DATA or 'schedulable' in self.request.DATA):
+            other_sum = (
+                self.get_queryset()
+                .filter(project=obj.project, schedulable=True)
+                .exclude(pk=obj.pk)
+                .aggregate(total=Sum('percentage_impact'))['total'] or 0
+            )
+            if other_sum + (obj.percentage_impact or 0) > 100:
+                raise exc.WrongArguments({"code": "schedulable_impact_exceeds_100"})
+
+    def pre_delete(self, obj):
+        if CardRelation.objects.filter(
+            Q(source_type=CardType.EPIC, source_id=obj.id) |
+            Q(target_type=CardType.EPIC, target_id=obj.id),
+            is_active=True
+        ).exists():
+            raise exc.BadRequest({"code": "has_active_card_relations"})
+        super().pre_delete(obj)
 
     """
     Updating the epic order attribute can affect the ordering of another epics
@@ -140,7 +167,7 @@ class EpicViewSet(OCCResourceMixin, VotedResourceMixin, HistoryResourceMixin, Wa
                         request.DATA['status'] = new_project.default_epic_status.id
 
             except Project.DoesNotExist:
-                return response.BadRequest(_("The project doesn't exist"))
+                return response.BadRequest({"code": "project_not_found"})
 
         return super().update(request, *args, **kwargs)
 
@@ -175,6 +202,13 @@ class EpicViewSet(OCCResourceMixin, VotedResourceMixin, HistoryResourceMixin, Wa
         csv_response = HttpResponse(data.getvalue(), content_type='application/csv; charset=utf-8')
         csv_response['Content-Disposition'] = 'attachment; filename="epics.csv"'
         return csv_response
+
+    @list_route(methods=["GET"])
+    def history_pd(self, request, *args, **kwargs):
+        project_id = request.QUERY_PARAMS.get("project", None)
+        project = get_object_or_error(Project, request.user, id=project_id)
+        self.check_permissions(request, "history_pd", project)
+        return response.Ok(services.get_epics_pd_history(project))
 
     @list_route(methods=["POST"])
     def bulk_create(self, request, **kwargs):
